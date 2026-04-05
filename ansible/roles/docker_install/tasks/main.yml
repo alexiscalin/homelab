@@ -1,0 +1,30 @@
+# roles/docker_install/tasks/main.yml
+
+---
+- name: Install Docker Engine and Compose plugin
+  ansible.builtin.package:
+    name:
+      - docker-buildx-plugin
+      - docker-ce-cli
+      - docker-ce-rootless-extras
+      - docker-ce
+      - docker-compose-plugin
+      - containerd.io
+    state: present
+    update_cache: yes
+  become: true
+  
+
+- name: Add deploy user to docker group
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: yes
+  become: true
+
+- name: Ensure Docker is running
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+  become: true

@@ -1,15 +1,15 @@
 ---
 - name: Enable dnsmasq
-  ansible.builtin.systemd:
+  ansible.builtin.service:
     name: dnsmasq
     state: enabled
 
 - name: Start dnsmasq
-  ansible.builtin.systemd:
+  ansible.builtin.service:
     name: dnsmasq
     state: started
 
 - name: Restart dnsmasq
-  ansible.builtin.systemd:
+  ansible.builtin.service:
     name: dnsmasq
     state: restarted

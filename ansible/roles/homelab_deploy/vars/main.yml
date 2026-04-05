@@ -1,0 +1,30 @@
+# Global Config
+common_tz: "Europe/Paris"
+common_puid: "1000"
+common_pgid: "1000"
+docker_gid: "989"
+render_gid: "226"
+
+# Paths
+app_deploy_dir: "~/docker"
+appdata_dir: "./appdata"
+media_dir: "/mnt/hdd/data"
+tftp_dir: "/srv/tftp"
+syncthing_data_dir: "/mnt/hdd/syncthing"
+
+# VPN Settings
+vpn_provider: "mullvad"
+vpn_country: "Switzerland"
+
+# Ports (Optional: Many of these have defaults in the template now, 
+# but you can override them here)
+jenkins_port: 8080
+jellyfin_port: 8096
+qbittorrent_port: 8081
+sonarr_port: 8989
+# ... add others if you want to change them from their defaults
+
+# Miniflux Non-Secret Config
+miniflux_db_user: "miniflux"
+miniflux_db_name: "miniflux"
+miniflux_admin_user: "admin"

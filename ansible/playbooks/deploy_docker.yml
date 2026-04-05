@@ -1,0 +1,7 @@
+# playbook.yml
+---
+- name: Deploy application with Docker Compose
+  hosts: Z230
+  roles:
+    - docker_install
+    - homelab_deploy

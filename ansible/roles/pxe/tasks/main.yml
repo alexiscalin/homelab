@@ -1,7 +1,7 @@
 # roles/pxe/tasks/main.yml
 ---
 - name: Install ca-certificates
-  ansible.builtin.apt:
+  ansible.builtin.package:
     name: ca-certificates
     state: present
 
@@ -12,7 +12,7 @@
     update_cache: yes
 
 - name: Install dnsmasq
-  ansible.builtin.apt:
+  ansible.builtin.package:
     name: dnsmasq
     state: present
   notify: 
