@@ -1,0 +1,7 @@
+---
+- name: Setup and Configure PXE Server
+  hosts: Z230
+  become: true
+  
+  roles:
+    - pxe

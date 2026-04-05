@@ -1,0 +1,9 @@
+# Python virtual environment
+.venv/
+
+# Downloaded Ansible dependencies
+ansible/collections/
+ansible/roles_galaxy/
+
+# Sensitive data (if you use Ansible Vault later)
+*.vault_pass

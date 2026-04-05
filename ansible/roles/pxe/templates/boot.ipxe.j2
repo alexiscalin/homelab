@@ -1,0 +1,94 @@
+#!ipxe
+
+# Automatically inserts the IP Ansible used to connect to this server
+set srv http://{{ ansible_default_ipv4.address }}:80
+set menu-timeout 20000
+set menu-default debian
+
+:start
+menu Choix du systeme a installer (PXE Netboot)
+item --gap --             --- Distributions Linux ---
+item debian               Installer Debian (Stable)
+item arch                 Installer Arch Linux (Rolling)
+item cachyos              Installer CachyOS
+item fedora               Installer Fedora
+#item gentoo              Installer Gentoo (Minimal)
+item slackware            Installer Slackware
+item alpine               Installer Alpine (Minimal)
+item --gap --             --- Utilitaires ---
+item flash_coreboot       Update Coreboot (Alpine Linux)
+item shell                Ouvrir un shell iPXE (Depannage)
+item exit                 Quitter et demarrer sur le disque local
+
+choose --timeout ${menu-timeout} --default ${menu-default} target && goto ${target}
+
+# --- DEBIAN ---
+:debian
+echo Chargement de Debian (HTTP)...
+kernel ${srv}/debian/vmlinuz vga=normal initrd=initrd.gz
+initrd ${srv}/debian/initrd.gz
+boot || goto start
+
+# --- ARCH LINUX ---
+:arch
+echo Chargement de Arch Linux...
+kernel ${srv}/arch/vmlinuz initrd=initrd.img ip=:::::eth0:dhcp archisobasedir=arch archiso_http_srv=https://geo.mirror.pkgbuild.com/iso/latest/
+initrd ${srv}/arch/initrd.img
+boot || goto start
+
+# --- CachyOS ---
+:cachyos
+echo Chargement de CachyOS via Nginx Local...
+imgfree
+kernel ${srv}/cachyos/arch/boot/x86_64/vmlinuz-linux-cachyos initrd=initramfs-linux-cachyos.img ip=:::::eth0:dhcp archisobasedir=arch archiso_http_srv=${srv}/cachyos/ cow_spacesize=10G
+initrd ${srv}/cachyos/arch/boot/x86_64/initramfs-linux-cachyos.img
+boot || goto start
+
+# --- FEDORA ---
+:fedora
+echo Chargement de Fedora (HTTP)...
+kernel ${srv}/fedora/vmlinuz initrd=initrd.img inst.repo=https://download.fedoraproject.org/pub/fedora/linux/releases/{{ fedora_ver }}/Everything/x86_64/os/
+initrd ${srv}/fedora/initrd.img
+boot || goto start
+
+# --- GENTOO ---
+#:gentoo
+#echo Chargement de Gentoo (Composants separes)...
+#set boot-url ${srv}/gentoo
+#kernel ${boot-url}/vmlinuz
+#initrd ${boot-url}/gentoo.igz
+#initrd ${boot-url}/image.squashfs /image.squashfs
+#imgargs vmlinuz root=/dev/ram0 init=/linuxrc looptype=squashfs loop=/image.squashfs cdroot
+#boot || goto start
+
+:slackware
+echo Chargement du Kernel Slackware Current (Generic)...
+kernel ${srv}/slackware/vmlinuz initrd=initrd.img load_ramdisk=1 prompt_ramdisk=0 rw
+echo Chargement de l'Initrd Geante (97Mo)...
+initrd ${srv}/slackware/initrd.img
+boot || goto start
+
+# --- ALPINE ---
+:alpine
+echo Chargement de Alpine Linux (HTTP)...
+set base-url ${srv}/alpine
+kernel ${base-url}/vmlinuz-lts ip=dhcp alpine_repo=https://dl-cdn.alpinelinux.org/alpine/latest-stable/main modloop=${base-url}/modloop-lts
+initrd ${base-url}/initramfs-lts
+boot || goto start
+
+# --- UTILITAIRE : FLASH COREBOOT (ALPINE) ---
+:flash_coreboot
+echo Chargement de l'utilitaire Coreboot (Alpine Linux 50Mo)...
+set base-url ${srv}/alpine
+kernel ${base-url}/vmlinuz-lts ip=dhcp alpine_repo=https://dl-cdn.alpinelinux.org/alpine/latest-stable/main modloop=${base-url}/modloop-lts apkovl=${srv}/coreboot/alpine.apkovl.tar.gz iomem=relaxed
+initrd ${base-url}/initramfs-lts
+boot || goto start
+
+:shell
+echo Tapez 'exit' pour revenir au menu principal.
+shell
+goto start
+
+:exit
+echo Demarrage sur le disque dur local...
+exit

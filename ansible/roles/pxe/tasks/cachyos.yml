@@ -1,0 +1,83 @@
+---
+- name: Fetch CachyOS desktop ISO directory from Web Mirror
+  ansible.builtin.uri:
+    url: "https://mirror.cachyos.org/ISO/desktop/"
+    return_content: yes
+  register: cachyos_html
+
+- name: Parse latest CachyOS version from HTML
+  ansible.builtin.set_fact:
+    # Captures the 6-digit date folder (e.g., 260308) from the Apache/Nginx index
+    cachyos_ver: "{{ cachyos_html.content | regex_findall('href=\"([0-9]{6})/\"') | max }}"
+
+- name: Construct the dynamic ISO URL (Using the fast CDN)
+  ansible.builtin.set_fact:
+    cachyos_url: "https://cdn77.cachyos.org/ISO/desktop/{{ cachyos_ver }}/cachyos-desktop-linux-{{ cachyos_ver }}.iso"
+
+# ... (Keep the rest of your current cachyos.yml from here down exactly as it is) ...
+- name: Check currently deployed CachyOS version
+  ansible.builtin.slurp:
+    src: /srv/tftp/cachyos/.version
+  register: current_cachyos_ver
+  ignore_errors: true
+
+- name: Set deployed version fact
+  ansible.builtin.set_fact:
+    deployed_cachyos: "{{ (current_cachyos_ver.content | b64decode | trim) if not current_cachyos_ver.failed else 'none' }}"
+
+- name: Automated CachyOS ISO Processing (Only if newer version exists)
+  when: deployed_cachyos != cachyos_ver
+  block:
+    - name: Download CachyOS ISO {{ cachyos_ver }}
+      ansible.builtin.get_url:
+        url: "{{ cachyos_url }}"
+        dest: /tmp/cachyos_latest.iso
+        mode: '0644'
+        timeout: 1800  # 30 minutes timeout for the large 2.5GB file
+
+    - name: Create temporary mount point
+      ansible.builtin.file:
+        path: /tmp/cachyos_mount
+        state: directory
+
+    - name: Mount the CachyOS ISO
+      ansible.builtin.command: mount -o loop,ro /tmp/cachyos_latest.iso /tmp/cachyos_mount
+
+    - name: Nuke old CachyOS folder to ensure clean extraction
+      ansible.builtin.file:
+        path: /srv/tftp/cachyos
+        state: absent
+
+    - name: Create fresh final CachyOS serving directory
+      ansible.builtin.file:
+        path: /srv/tftp/cachyos
+        state: directory
+
+    - name: Fast copy ISO contents to Nginx root
+      ansible.builtin.command: cp -a /tmp/cachyos_mount/. /srv/tftp/cachyos/
+
+    - name: Unmount the ISO
+      ansible.builtin.command: umount /tmp/cachyos_mount
+
+    - name: Clean up temporary files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/cachyos_latest.iso
+        - /tmp/cachyos_mount
+
+    - name: Save deployed version to prevent re-downloading next run
+      ansible.builtin.copy:
+        content: "{{ cachyos_ver }}"
+        dest: /srv/tftp/cachyos/.version
+        mode: '0644'
+
+    - name: Fix permissions on extracted files for Nginx
+      ansible.builtin.file:
+        path: /srv/tftp/cachyos
+        state: directory
+        owner: root
+        group: root
+        mode: 'u=rwX,g=rX,o=rX'
+        recurse: true

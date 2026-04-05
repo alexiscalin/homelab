@@ -1,0 +1,82 @@
+# roles/pxe/tasks/main.yml
+---
+- name: Install ca-certificates
+  ansible.builtin.apt:
+    name: ca-certificates
+    state: present
+
+- name: Ensure CA certificates are up-to-date
+  ansible.builtin.apt:
+    name: ca-certificates
+    state: latest
+    update_cache: yes
+
+- name: Install dnsmasq
+  ansible.builtin.apt:
+    name: dnsmasq
+    state: present
+  notify: 
+    - Enable dnsmasq
+
+- name: Create TFTP root directory
+  ansible.builtin.file:
+    path: /srv/tftp
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Download official iPXE core bootloaders
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "/srv/tftp/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - { url: 'https://boot.ipxe.org/x86_64-efi/ipxe.efi', dest: 'ipxe.efi' }
+    - { url: 'https://boot.ipxe.org/undionly.kpxe', dest: 'undionly.kpxe' }
+
+- name: Execute Smart Downloads for Distros
+  ansible.builtin.include_tasks: downloads.yml
+
+- name: Process Dynamic CachyOS ISO
+  ansible.builtin.include_tasks: cachyos.yml
+
+- name: Create Coreboot utility directory
+  ansible.builtin.file:
+    path: /srv/tftp/coreboot
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy Coreboot flash script
+  ansible.builtin.copy:
+    src: flash_coreboot.sh
+    dest: /srv/tftp/coreboot/flash_coreboot.sh
+    mode: '0755'
+
+- name: Deploy dynamic iPXE menu
+  ansible.builtin.template:
+    src: boot.ipxe.j2
+    dest: /srv/tftp/boot.ipxe
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Deploy dnsmasq configuration
+  ansible.builtin.template:
+    src: dnsmasq.conf.j2
+    dest: /etc/dnsmasq.d/pxe.conf
+  notify: 
+    - Restart dnsmasq
+
+- name: Final security sweep - Ensure strict ownership and smart permissions on TFTP root
+  ansible.builtin.file:
+    path: /srv/tftp
+    state: directory
+    owner: root
+    group: root
+    mode: 'u=rwX,g=rX,o=rX'
+    recurse: true

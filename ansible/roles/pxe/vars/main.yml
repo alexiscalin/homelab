@@ -1,0 +1,53 @@
+---
+fedora_ver: "43"
+
+pxe_distros:
+  # DEBIAN
+  - folder: "debian"
+    files:
+      - dest: "vmlinuz"
+        url: "http://ftp.debian.org/debian/dists/stable/main/installer-amd64/current/images/netboot/debian-installer/amd64/linux"
+      - dest: "initrd.gz"
+        url: "http://ftp.debian.org/debian/dists/stable/main/installer-amd64/current/images/netboot/debian-installer/amd64/initrd.gz"
+
+  # ARCH LINUX
+  - folder: "arch"
+    files:
+      - dest: "vmlinuz"
+        url: "https://geo.mirror.pkgbuild.com/iso/latest/arch/boot/x86_64/vmlinuz-linux"
+      - dest: "initrd.img"
+        url: "https://geo.mirror.pkgbuild.com/iso/latest/arch/boot/x86_64/initramfs-linux.img"
+
+  # # CACHYOS
+  # - folder: "cachyos"
+  #   files:
+  #     - dest: "vmlinuz"
+  #       url: "https://mirror.cachyos.org/NETBOOT/cachyos/x86_64/vmlinuz-cachyos"
+  #     - dest: "initrd.img"
+  #       url: "https://mirror.cachyos.org/NETBOOT/cachyos/x86_64/initramfs-cachyos.img"
+
+  # FEDORA
+  - folder: "fedora"
+    files:
+      - dest: "vmlinuz"
+        url: "https://download.fedoraproject.org/pub/fedora/linux/releases/{{ fedora_ver }}/Everything/x86_64/os/images/pxeboot/vmlinuz"
+      - dest: "initrd.img"
+        url: "https://download.fedoraproject.org/pub/fedora/linux/releases/{{ fedora_ver }}/Everything/x86_64/os/images/pxeboot/initrd.img"
+
+  # ALPINE
+  - folder: "alpine"
+    files:
+      - dest: "vmlinuz-lts"
+        url: "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/netboot/vmlinuz-lts"
+      - dest: "initramfs-lts"
+        url: "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/netboot/initramfs-lts"
+      - dest: "modloop-lts"
+        url: "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/netboot/modloop-lts"
+
+# SLACKWARE (CURRENT)
+  - folder: "slackware"
+    files:
+      - dest: "vmlinuz"
+        url: "https://mirrors.slackware.com/slackware/slackware64-current/kernels/generic.s/bzImage"
+      - dest: "initrd.img"
+        url: "https://mirrors.slackware.com/slackware/slackware64-current/isolinux/initrd.img"

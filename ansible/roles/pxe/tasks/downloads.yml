@@ -1,0 +1,24 @@
+---
+- name: Ensure all distro folders exist
+  ansible.builtin.file:
+    path: "/srv/tftp/{{ item.folder }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ pxe_distros }}"
+
+- name: Smart Download - Fetch kernels and initrds only if missing or newer
+  ansible.builtin.get_url:
+    url: "{{ file_item.url }}"
+    dest: "/srv/tftp/{{ distro_item.folder }}/{{ file_item.dest }}"
+    owner: root
+    group: root
+    mode: '0644'
+    force: true
+  loop: "{{ pxe_distros | subelements('files', skip_missing=True) }}"
+  loop_control:
+    label: "{{ distro_item.folder }}/{{ file_item.dest }}"
+  vars:
+    distro_item: "{{ item.0 }}"
+    file_item: "{{ item.1 }}"
