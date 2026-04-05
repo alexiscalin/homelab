@@ -68,26 +68,49 @@ echo "  Taille fichier  : ${ROM_SIZE_KB} kB"
 echo "================================================="
 echo ""
 
-# 4. Validation interactive
-read -p "Les tailles correspondent-elles ? ÉCRIRE sur cette puce ? (o/N) : " CONFIRM
+# 4. Validation interactive et sélection de la région
+echo "======================================================="
+echo " VÉRIFICATION ET SÉLECTION DU FLASH"
+echo " Les tailles correspondent-elles ?"
+echo " Si oui, que voulez-vous écrire sur cette puce ?"
+echo "-------------------------------------------------------"
+echo " [1] Écrire la ROM COMPLÈTE"
+echo " [2] Écrire UNIQUEMENT la région BIOS (--ifd -i bios)"
+echo " [q] Annuler (Ne rien flasher)"
+echo "======================================================="
+read -p "Votre choix (1/2/q) : " FLASH_CHOICE
 
-if [[ "$CONFIRM" =~ ^[oOyY] ]]; then
-    echo "[4/4] Flashage en cours avec -c \"$FIRST_CHIP\" (NE PAS ÉTEINDRE)..."
-    flashrom -p internal -c "$FIRST_CHIP" -w /tmp/coreboot.rom
+# Base flashrom arguments
+FLASH_ARGS=("-p" "internal" "-c" "$FIRST_CHIP")
 
-    if [ $? -eq 0 ]; then
-        echo "================================================="
-        echo "   FLASH RÉUSSI ! Redémarrage dans 10 secondes.  "
-        echo "================================================="
-        sleep 10
-        reboot
-    else
-        echo "================================================="
-        echo "   ÉCHEC DU FLASH. Lancement d'un shell...       "
-        echo "================================================="
+case "$FLASH_CHOICE" in
+    1)
+        echo "[4/4] Flashage COMPLET en cours avec -c \"$FIRST_CHIP\" (NE PAS ÉTEINDRE)..."
+        FLASH_ARGS+=("-w" "/tmp/coreboot.rom")
+        ;;
+    2)
+        echo "[4/4] Flashage de la RÉGION BIOS en cours avec -c \"$FIRST_CHIP\" (NE PAS ÉTEINDRE)..."
+        FLASH_ARGS+=("--ifd" "-i" "bios" "-w" "/tmp/coreboot.rom")
+        ;;
+    [qQnN]*|*)
+        echo "Annulation du flashage. Lancement d'un shell de dépannage..."
         /bin/bash
-    fi
+        exit 0 # Exits the script cleanly after the shell is closed
+        ;;
+esac
+
+# Execute flashrom with the safely constructed array
+flashrom "${FLASH_ARGS[@]}"
+
+if [ $? -eq 0 ]; then
+    echo "================================================="
+    echo "   FLASH RÉUSSI ! Redémarrage dans 10 secondes.  "
+    echo "================================================="
+    sleep 10
+    reboot
 else
-    echo "Annulation du flashage. Lancement d'un shell de dépannage..."
+    echo "================================================="
+    echo "   ÉCHEC DU FLASH. Lancement d'un shell...       "
+    echo "================================================="
     /bin/bash
 fi
