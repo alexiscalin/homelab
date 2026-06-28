@@ -14,7 +14,7 @@ Once I was  100% sure about the drives to use, I then proceded to wipe them usin
 
 `sudo wipefs -a /dev/sda /dev/sdc /dev/sdd /dev/sde`
 
-## Create the raid 5 array
+## Create the raid 5 array
 
 For this setup I went with mdadm and latter partitionned it with ext4.
 
