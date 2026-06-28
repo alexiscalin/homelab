@@ -1,6 +1,6 @@
 # Guide to reproduce the raid 5 array
 
-## Find the drives to use
+## Find the drives to use
 
 To find the drives to use :
 
