@@ -1,7 +1,3 @@
-import hudson.FilePath
-import hudson.model.ParametersAction
-import hudson.model.FileParameterValue
-
 // =============================================================================
 //  Coreboot Builder  (production pipeline)
 // -----------------------------------------------------------------------------
@@ -106,7 +102,23 @@ pipeline {
             steps {
                 script {
                     def workspace = env.WORKSPACE
-                    def romReady = recoverFile(workspace)
+
+                    // stock.rom is delivered by a "Stashed File Parameter"
+                    // (file-parameters plugin). Unstash it into the workspace.
+                    // Absent or empty means "no stock dump" -> no blob injection.
+                    // This replaces the old rawBuild/FileParameterValue reflection
+                    // so the job runs under the Groovy sandbox with no
+                    // In-Process Script Approval (works as Pipeline-from-SCM).
+                    def romReady = false
+                    try {
+                        unstash 'stock.rom'
+                        romReady = (sh(script: "[ -s stock.rom ]", returnStatus: true) == 0)
+                        if (romReady) {
+                            echo "✅ stock.rom provided (" + sh(script: "stat -c%s stock.rom", returnStdout: true).trim() + " bytes)."
+                        }
+                    } catch (ignored) {
+                        echo "ℹ️  No stock.rom uploaded."
+                    }
 
                     def vendor = params.VENDOR
                     def selection = params.TARGET_BOARD
@@ -397,32 +409,4 @@ def prepareDeguardBlobs(String vendor, String model, Map spec) {
         "CONFIG_ME_BIN_PATH=\"${blobDest}/me.bin\"",
         "CONFIG_GBE_BIN_PATH=\"${blobDest}/gbe.bin\""
     ]
-}
-
-def recoverFile(String workspacePath) {
-    def found = false
-    try {
-        echo "Checking for injected stock.rom..."
-        def build = currentBuild.rawBuild
-        def action = build.getAction(hudson.model.ParametersAction.class)
-        if (action) {
-            def fileParam = action.getParameter("stock.rom")
-            if (fileParam && fileParam instanceof hudson.model.FileParameterValue) {
-                def fileItem = fileParam.getFile()
-                if (fileItem) {
-                    def dest = new hudson.FilePath(new java.io.File("${workspacePath}/stock.rom"))
-                    dest.copyFrom(fileItem)
-                    if (dest.length() > 0) {
-                        echo "✅ stock.rom recovered (${dest.length()} bytes)."
-                        found = true
-                    }
-                }
-            }
-        }
-    } catch (org.jenkinsci.plugins.scriptsecurity.sandbox.RejectedAccessException e) {
-        error "❌ Script Security Block: approve 'rawBuild'/'getFile' in In-Process Script Approval.\n${e.message}"
-    } catch (Exception e) {
-        echo "❌ Unexpected error recovering stock.rom: ${e.message}"
-    }
-    return found
 }
