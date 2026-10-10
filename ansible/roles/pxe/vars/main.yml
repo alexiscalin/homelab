@@ -51,3 +51,10 @@ pxe_distros:
         url: "https://mirrors.slackware.com/slackware/slackware64-current/kernels/generic.s/bzImage"
       - dest: "initrd.img"
         url: "https://mirrors.slackware.com/slackware/slackware64-current/isolinux/initrd.img"
+# Coreboot publishing: uid/gid of the `jenkins` user INSIDE the jenkins_server
+# container (it writes ROMs + manifest.tsv to the bind-mounted /srv/tftp/coreboot).
+coreboot_publish_uid: 1000
+coreboot_publish_gid: 1000
+
+# Where the coreboot flasher apkovl tree is staged before being tarred.
+apkovl_stage_dir: /var/lib/pxe-apkovl

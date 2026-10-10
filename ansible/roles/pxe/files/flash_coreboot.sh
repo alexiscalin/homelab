@@ -14,8 +14,18 @@
 #  NOTE: the FIRST coreboot install on a Boot Guard board must be done with an
 #  EXTERNAL programmer (full chip, with the deguarded ME + HAP descriptor).
 #  This tool is for safe *subsequent* internal updates.
+#
+#  Delivery: the PXE Ansible role embeds this file in alpine.apkovl.tar.gz as
+#  /etc/local.d/flash_coreboot.start, so OpenRC runs it at boot.
 # =============================================================================
 set -u
+
+# OpenRC's local service starts us without a usable terminal: attach to the
+# console so the prompts are visible AND `read` gets keyboard input.
+if [ ! -t 0 ] && [ -c /dev/tty1 ]; then
+    exec </dev/tty1 >/dev/tty1 2>&1
+    clear
+fi
 
 # Build/boot server (same host that serves PXE over HTTP:80). Override with
 # the COREBOOT_SERVER env var if needed.
@@ -29,7 +39,7 @@ die()  { echo; echo "ERREUR: $*"; echo "Lancement d'un shell de depannage..."; e
 line; echo "   COREBOOT FLASHER (Alpine, board-aware)"; line
 
 # --- 1. Dependencies ---------------------------------------------------------
-echo "[1/6] Installation des outils (flashrom, dmidecode)..."
+echo "[1/6] Installation de flashrom..."
 # flashrom lives in the Alpine 'community' repo, which the netboot cmdline does
 # not enable by default -- add both main and community if missing.
 REL="latest-stable"
@@ -41,18 +51,21 @@ if ! grep -q "/community" /etc/apk/repositories 2>/dev/null; then
 fi
 # Retry apk update while networking/DHCP finishes coming up.
 i=0; while [ $i -lt 15 ]; do apk update >/dev/null 2>&1 && break; sleep 2; i=$((i+1)); done
-apk add --no-cache flashrom dmidecode >/dev/null 2>&1 \
-    || die "Impossible d'installer flashrom/dmidecode (pas de reseau ou repo community indisponible ?)."
+apk add --no-cache flashrom >/dev/null 2>&1 \
+    || die "Impossible d'installer flashrom (pas de reseau ou repo community indisponible ?)."
 
 # --- 2. Identify this machine ------------------------------------------------
+# Lenovo stores the model in product_version ("ThinkPad T480"); HP and Dell
+# store it in product_name ("HP ProDesk 600 G1 SFF"). Read both, trim spaces.
 echo "[2/6] Identification de la carte..."
-SYS_VENDOR=$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null)
-PRODUCT=$(cat /sys/class/dmi/id/product_version 2>/dev/null)
-[ -n "$PRODUCT" ] || PRODUCT=$(dmidecode -s system-version 2>/dev/null | head -n1)
-[ -n "$PRODUCT" ] || PRODUCT=$(cat /sys/class/dmi/id/product_name 2>/dev/null)
-echo "   Fabricant : ${SYS_VENDOR:-inconnu}"
-echo "   Modele    : ${PRODUCT:-inconnu}"
-[ -n "$PRODUCT" ] || die "Impossible de lire l'identite DMI de la machine."
+dmi() { sed 's/^[[:space:]]*//; s/[[:space:]]*$//' "/sys/class/dmi/id/$1" 2>/dev/null; }
+SYS_VENDOR=$(dmi sys_vendor)
+DMI_VERSION=$(dmi product_version)
+DMI_NAME=$(dmi product_name)
+echo "   Fabricant       : ${SYS_VENDOR:-inconnu}"
+echo "   product_version : ${DMI_VERSION:-vide}"
+echo "   product_name    : ${DMI_NAME:-vide}"
+[ -n "$DMI_VERSION$DMI_NAME" ] || die "Impossible de lire l'identite DMI de la machine."
 
 # --- 3. Fetch manifest, match THIS board ------------------------------------
 echo "[3/6] Recuperation du manifeste depuis ${BASE}..."
@@ -60,10 +73,13 @@ MANIFEST=$(wget -qO - "${BASE}/manifest.tsv") \
     || die "Manifeste introuvable sur le serveur (${BASE}/manifest.tsv)."
 
 # manifest columns: model  dmi_match  size  sha256  has_ifd  payload  cb_version  path
-MATCH=$(printf '%s\n' "$MANIFEST" | awk -F'\t' -v p="$PRODUCT" '$2==p {print; exit}')
+# An entry with an EMPTY dmi_match never matches -- otherwise a machine with an
+# empty DMI field would be handed an unrelated board's ROM.
+MATCH=$(printf '%s\n' "$MANIFEST" | awk -F'\t' -v v="$DMI_VERSION" -v n="$DMI_NAME" \
+    '$2 != "" && ($2 == v || $2 == n) {print; exit}')
 if [ -z "$MATCH" ]; then
     echo
-    echo "   Aucune ROM publiee pour '${PRODUCT}'."
+    echo "   Aucune ROM publiee pour cette machine."
     echo "   Cartes disponibles dans le manifeste :"
     printf '%s\n' "$MANIFEST" | awk -F'\t' 'NF>=2 {printf "     - %s (%s)\n", $2, $1}'
     die "Refus de flasher: aucune image ne correspond a cette carte (anti-brick)."
@@ -109,7 +125,7 @@ echo
 line
 echo "            VERIFICATION AVANT FLASH"
 line
-echo "  Carte detectee  : $PRODUCT  ->  $MODEL"
+echo "  Carte detectee  : $(printf '%s' "$MATCH" | cut -f2)  ->  $MODEL"
 echo "  Puce            : $CHIP (${CHIP_KB:-?} kB)"
 echo "  Image           : $PAYLOAD / coreboot $CBVER"
 line

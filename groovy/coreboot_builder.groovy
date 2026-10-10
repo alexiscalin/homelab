@@ -18,13 +18,15 @@
 //     manifest to refuse flashing the wrong board or a corrupt image.
 // =============================================================================
 
+import groovy.transform.Field
+
 // --- Pinned coreboot release. Bump deliberately; never track main. ---
-CB_VERSION = '26.09'
+@Field final String CB_VERSION = '26.09'
 
 // --- Boards that require deguard (Intel Boot Guard) AND are supported by the
 //     upstream deguard utility. Keyed by coreboot variant model name.
 //     Adding a board here = that board is treated as Boot-Guard and deguarded.
-DEGUARD_TARGETS = [
+@Field final Map DEGUARD_TARGETS = [
     't470s': [delta: 'thinkpad_t470s', pch: 'LP', sku: '2M', version: '11.6.0.1126'],
     't480' : [delta: 'thinkpad_t480',  pch: 'LP', sku: '2M', version: '11.6.0.1126'],
     't480s': [delta: 'thinkpad_t480s', pch: 'LP', sku: '2M', version: '11.6.0.1126'],
@@ -35,30 +37,39 @@ DEGUARD_TARGETS = [
 // --- Baseboards whose every variant has Intel Boot Guard. A variant of one of
 //     these that is NOT in DEGUARD_TARGETS (e.g. x380_yoga, which has no
 //     upstream delta) will fail the build rather than ship an unbootable ROM.
-BOOTGUARD_BASEBOARDS = ['sklkbl_thinkpad']
+@Field final List BOOTGUARD_BASEBOARDS = ['sklkbl_thinkpad']
 
-// --- DMI product_version string the flasher matches against live hardware.
-//     Extend when you start flashing a new board (deguard or not).
-DMI_MATCH = [
+// --- DMI string identifying each board on live hardware. The flasher compares
+//     it against BOTH /sys/class/dmi/id/product_version (Lenovo puts the model
+//     there) and product_name (HP/Dell put it there). Verify on the machine:
+//         cat /sys/class/dmi/id/product_version /sys/class/dmi/id/product_name
+//     A board without an entry still builds, but the flasher will never match
+//     it (it refuses rather than guessing).
+@Field final Map DMI_MATCH = [
     't470s': 'ThinkPad T470s', 't480': 'ThinkPad T480', 't480s': 'ThinkPad T480s',
     't580' : 'ThinkPad T580',  'x280': 'ThinkPad X280',
     // pre-Boot-Guard boards you also flash:
     't430' : 'ThinkPad T430',  'x230': 'ThinkPad X230',
     't420' : 'ThinkPad T420',  'x220': 'ThinkPad X220',
+    'prodesk_600_g1_sff': 'HP ProDesk 600 G1 SFF',
 ]
 
 // --- deguard donor ME (LP / 2M / 11.6.0.1126). See coreboot deguard.md. ---
-DEGUARD_REPO     = 'https://review.coreboot.org/deguard'
-DONOR_LP_URL     = 'https://web.archive.org/web/20241110222323/https://dl.dell.com/FOLDER04573471M/1/Inspiron_5468_1.3.0.exe'
-DONOR_LP_SHA256  = '912271bb3ff2cf0e2e27ccfb94337baaca027e6c90b4245f9807a592c8a652e1'
-DONOR_LP_SIZE    = 0x1f0000   // 2031616 bytes
-DELL_PFS_EXTRACT = 'https://raw.githubusercontent.com/vuquangtrong/Dell-PFS-BIOS-Assembler/master/Dell_PFS_Extract.py'
+@Field final String DEGUARD_REPO     = 'https://review.coreboot.org/deguard'
+@Field final String DONOR_LP_URL     = 'https://web.archive.org/web/20241110222323/https://dl.dell.com/FOLDER04573471M/1/Inspiron_5468_1.3.0.exe'
+@Field final String DONOR_LP_SHA256  = '912271bb3ff2cf0e2e27ccfb94337baaca027e6c90b4245f9807a592c8a652e1'
+@Field final int    DONOR_LP_SIZE    = 0x1f0000   // 2031616 bytes
+@Field final String DELL_PFS_EXTRACT = 'https://raw.githubusercontent.com/vuquangtrong/Dell-PFS-BIOS-Assembler/master/Dell_PFS_Extract.py'
 
-TFTP_COREBOOT = '/srv/tftp/coreboot'
+// Host dir (bind-mounted into jenkins_server) served over HTTP by the PXE box.
+// Must be writable by the Jenkins uid -- the PXE Ansible role sets that up.
+@Field final String TFTP_COREBOOT = '/srv/tftp/coreboot'
 
 pipeline {
     agent { label "${params.TARGET_NODE.trim()}" }
-    options { timestamps(); timeout(time: 90, unit: 'MINUTES') }
+    // skipDefaultCheckout: this job's Jenkinsfile comes from the homelab repo,
+    // but the workspace must hold coreboot -- don't clone homelab into it.
+    options { skipDefaultCheckout(); timestamps(); timeout(time: 90, unit: 'MINUTES') }
 
     stages {
         stage('Clean Workspace') {
@@ -117,7 +128,9 @@ pipeline {
                             echo "✅ stock.rom provided (" + sh(script: "stat -c%s stock.rom", returnStdout: true).trim() + " bytes)."
                         }
                     } catch (ignored) {
-                        echo "ℹ️  No stock.rom uploaded."
+                        echo "ℹ️  No stock.rom received. If you DID upload one, the 'stock.rom' job parameter " +
+                             "is still a classic File Parameter: it must be a 'Stashed File Parameter' " +
+                             "(file-parameters plugin) named exactly 'stock.rom', or the upload is invisible to the pipeline."
                     }
 
                     def vendor = params.VENDOR
@@ -135,6 +148,10 @@ pipeline {
                     def needsBootGuard = (baseboard in BOOTGUARD_BASEBOARDS) || (deguardSpec != null)
 
                     echo "Target: ${vendor} - Baseboard: ${baseboard} - Model: ${model}"
+                    if (!DMI_MATCH.containsKey(model)) {
+                        echo "⚠️  (warning, not an error) No DMI string for '${model}' in DMI_MATCH: the ROM will be " +
+                             "archived and published, but the PXE flasher will refuse to flash it until you add one."
+                    }
 
                     // Fail fast: a Boot Guard board we cannot deguard must not ship.
                     if (needsBootGuard && deguardSpec == null) {
@@ -255,10 +272,6 @@ pipeline {
                     env.ROM_HAS_IFD  = hasIfd ? '1' : '0'
                     env.DMI_MATCH    = DMI_MATCH.get(model, '')
                     env.PAYLOAD      = params.CONFIG_PAYLOAD
-                    if (!env.DMI_MATCH) {
-                        echo "⚠️  No DMI match string known for '${model}'. The ROM will deploy but the flasher " +
-                             "cannot auto-match it to hardware until you add '${model}' to DMI_MATCH in this pipeline."
-                    }
                 }
             }
         }
@@ -281,6 +294,12 @@ pipeline {
                             set -eu
                             ROMDIR="${TFTP_COREBOOT}/roms/${MODEL}"
                             MAN="${TFTP_COREBOOT}/manifest.tsv"
+
+                            if [ ! -w "${TFTP_COREBOOT}" ]; then
+                                echo "❌ ${TFTP_COREBOOT} is not writable by uid $(id -u) (owner: $(stat -c '%u:%g' "${TFTP_COREBOOT}"))."
+                                echo "   Re-run the PXE playbook: it hands this directory to the Jenkins uid."
+                                exit 1
+                            fi
                             mkdir -p "$ROMDIR"
 
                             SHA=$(sha256sum "$ROM_FILE" | cut -d' ' -f1)
