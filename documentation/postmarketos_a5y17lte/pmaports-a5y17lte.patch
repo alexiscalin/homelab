@@ -1,0 +1,455 @@
+diff --git a/device/archived/device-samsung-a5y17lte/APKBUILD b/device/archived/device-samsung-a5y17lte/APKBUILD
+index 72d441352e..30c6f3b715 100644
+--- a/device/archived/device-samsung-a5y17lte/APKBUILD
++++ b/device/archived/device-samsung-a5y17lte/APKBUILD
+@@ -4,7 +4,7 @@ maintainer=""
+ pkgname=device-samsung-a5y17lte
+ pkgdesc="Samsung Galaxy A5 (2017)"
+ pkgver=2
+-pkgrel=0
++pkgrel=3
+ url="https://postmarketos.org"
+ license="MIT"
+ arch="aarch64"
+@@ -30,6 +30,6 @@ nonfree_firmware() {
+ 
+ 
+ sha512sums="
+-957bd62ceeabd98e07626ada18bd91a630ee1fe52daabe88e23deadec3a21a985ee39cc08b50c2653c1597797c9c6277b70aa0980b5d2a69d048c4c835227035  deviceinfo
+-92effac4743fbcfc47461723eac7b088efb58574d76822293ba95d66edd4820886241173a84bed6a9095801d39311c29aeac409add53421bb2c5a6caf395226c  initfs-hook.sh
++e87da923fa49474809d1256415245808713da660732e27315abc0ebefeb596976baca7f9ba755f2aa7128f0d10cef049342d2969fd862fd17597db2c31bd7229  deviceinfo
++3971d4d6a36437f243b18a72cb2bded5770834d894cecbba03853392172350b66498389bacd1e0d2842b1be90ed0d3043931fa047473e865fe4fc9e62a985c8d  initfs-hook.sh
+ "
+diff --git a/device/archived/device-samsung-a5y17lte/deviceinfo b/device/archived/device-samsung-a5y17lte/deviceinfo
+index 6d93569719..365c0b2b64 100644
+--- a/device/archived/device-samsung-a5y17lte/deviceinfo
++++ b/device/archived/device-samsung-a5y17lte/deviceinfo
+@@ -23,4 +23,5 @@ deviceinfo_flash_offset_ramdisk="0x01000000"
+ deviceinfo_flash_offset_second="0x00f00000"
+ deviceinfo_flash_offset_tags="0x00000100"
+ deviceinfo_flash_pagesize="2048"
++deviceinfo_initfs_compression="gzip"
+ 
+diff --git a/device/archived/device-samsung-a5y17lte/initfs-hook.sh b/device/archived/device-samsung-a5y17lte/initfs-hook.sh
+index ad793883af..94e13ac78c 100644
+--- a/device/archived/device-samsung-a5y17lte/initfs-hook.sh
++++ b/device/archived/device-samsung-a5y17lte/initfs-hook.sh
+@@ -1,3 +1,20 @@
+ # Blank and unblank
+ echo 1 > /sys/class/graphics/fb0/blank
+ echo 0 > /sys/class/graphics/fb0/blank
++
++# Attach the pmOS subpartitions on SYSTEM ourselves, before the initramfs does.
++# It runs "losetup --direct-io=on", which makes util-linux open the backing
++# device with O_DIRECT; this 3.18 loop driver can't write through that and the
++# phone hard-resets on the first write (e2fsck journal replay). Once loop0p2
++# exists, find_root_partition picks it up and the initramfs skips its losetup.
++for _ in $(seq 1 50); do
++	[ -b /dev/mmcblk0p19 ] && break
++	sleep 0.1
++done
++losetup -Pf /dev/mmcblk0p19
++
++# The qcacld wlan driver requests firmware files that don't exist on Linux
++# (bdwlan30.b00, qsetup30.bin, wlan/wlan_mac.bin). Each one falls back to the
++# usermode helper and waits the default 60s, blocking udev for 3 minutes on
++# every boot. The setting persists after switch_root.
++echo 1 > /sys/class/firmware/timeout
+diff --git a/device/archived/linux-samsung-a5y17lte/APKBUILD b/device/archived/linux-samsung-a5y17lte/APKBUILD
+index b92b44b78e..d3a4b19e91 100644
+--- a/device/archived/linux-samsung-a5y17lte/APKBUILD
++++ b/device/archived/linux-samsung-a5y17lte/APKBUILD
+@@ -5,7 +5,7 @@
+ maintainer=""
+ pkgname=linux-samsung-a5y17lte
+ pkgver=3.18.140
+-pkgrel=2
++pkgrel=3
+ pkgdesc="Samsung Galaxy A5 (2017) kernel fork"
+ arch="aarch64"
+ _carch="arm64"
+@@ -94,7 +94,7 @@ package() {
+ sha512sums="
+ f3aaeb94386d6847c2407bc89b2a23c083324ed1c7cf095cbd40a72335efe642d4bbc755848e508b9caa09d0c75adb2064134461ed5e1d7d1a76b8c7007c8a4b  linux-samsung-a5y17lte-725aa5ab01e5a1272f34f01764f09009edf32777.tar.gz
+ 1dfcf7d1965d1a4fa86ac05d4408f1ffbedaf864689e0228d09d3d964fca08edf33dcf77bb0ab4dfcf1f8a37d6ee300c9e480457710745f9f5b7df9587e265e8  qcacld-48f9ab5d5c161549be098997fa0e3602c1547213.tar.gz
+-932081de999b2dd4307a6e1f5c7bc958cbe9b7c2bf2ce1750d1cde58daa54adee52ca2352469bbc136e726beada86cd35ddd73f5fe39b382ceaa9d4c209f00d9  config-samsung-a5y17lte.aarch64
++ee89743e520abf5b477cace95d7e8f271ca7aef2f3b257def46b624e4bd8b4701e529060f4df4cafd9d9b804b2de395a973677b35d1f9f6bda6074c267f44c55  config-samsung-a5y17lte.aarch64
+ 9b13cccc9323f343d0aa676de6c6a83f34815cf06656adfa7ba20b559d94fc46c04b1508f1db22d12a14d4cdd531994f548b77a4a4d7d07481ee88a56564c0c9  fix_firmware_path.patch
+ 75545ccd0082a119b9ad95fcef3523c939a5c946f8f3a5c3dde15cee1502f6c1011050a0ad5359426f018bb7ceea1c97a28c7665941bc89f365c8d11065ce0f6  linux3.7to4.5-ARM64-remove-Sun-Solaris-style-flag-on-section.patch
+ b5f7aed0d4c78fcd9ea6f65e11606c4d33004b45eed39017baa8b0a78db801396aa04ba7cd3a4a669c23f878f5462ae1b5f753e0e26b65c9962fd1e98855e524  0007-usb_gadget-set-random-rndis-host-MAC-address-to-prev.patch
+diff --git a/device/archived/linux-samsung-a5y17lte/config-samsung-a5y17lte.aarch64 b/device/archived/linux-samsung-a5y17lte/config-samsung-a5y17lte.aarch64
+index 90463cf18f..7fe9ae22d0 100644
+--- a/device/archived/linux-samsung-a5y17lte/config-samsung-a5y17lte.aarch64
++++ b/device/archived/linux-samsung-a5y17lte/config-samsung-a5y17lte.aarch64
+@@ -1,6 +1,6 @@
+ #
+ # Automatically generated file; DO NOT EDIT.
+-# Linux/arm64 3.18.140 Kernel Configuration
++# Linux/arm64 3.18.14 Kernel Configuration
+ #
+ CONFIG_ARM64=y
+ CONFIG_64BIT=y
+@@ -24,13 +24,11 @@ CONFIG_HAVE_GENERIC_RCU_GUP=y
+ CONFIG_ARCH_DMA_ADDR_T_64BIT=y
+ CONFIG_NEED_DMA_MAP_STATE=y
+ CONFIG_NEED_SG_DMA_LENGTH=y
+-CONFIG_SMP=y
+ CONFIG_SWIOTLB=y
+ CONFIG_IOMMU_HELPER=y
+ CONFIG_KERNEL_MODE_NEON=y
+ CONFIG_FIX_EARLYCON_MEM=y
+ CONFIG_GENERIC_BUG=y
+-CONFIG_PGTABLE_LEVELS=3
+ CONFIG_DEFCONFIG_LIST="/lib/modules/$UNAME_RELEASE/.config"
+ CONFIG_IRQ_WORK=y
+ CONFIG_BUILDTIME_EXTABLE_SORT=y
+@@ -89,7 +87,6 @@ CONFIG_HIGH_RES_TIMERS=y
+ #
+ CONFIG_TICK_CPU_ACCOUNTING=y
+ # CONFIG_VIRT_CPU_ACCOUNTING_GEN is not set
+-# CONFIG_SCHED_WALT is not set
+ # CONFIG_BSD_PROCESS_ACCT is not set
+ # CONFIG_TASKSTATS is not set
+ 
+@@ -135,7 +132,6 @@ CONFIG_IPC_NS=y
+ CONFIG_PID_NS=y
+ CONFIG_NET_NS=y
+ # CONFIG_SCHED_AUTOGROUP is not set
+-# CONFIG_SCHED_TUNE is not set
+ # CONFIG_SYSFS_DEPRECATED is not set
+ # CONFIG_RELAY is not set
+ CONFIG_BLK_DEV_INITRD=y
+@@ -337,7 +333,9 @@ CONFIG_ARM64_4K_PAGES=y
+ CONFIG_ARM64_VA_BITS_39=y
+ # CONFIG_ARM64_VA_BITS_48 is not set
+ CONFIG_ARM64_VA_BITS=39
++CONFIG_ARM64_PGTABLE_LEVELS=3
+ # CONFIG_CPU_BIG_ENDIAN is not set
++CONFIG_SMP=y
+ # CONFIG_SCHED_MC is not set
+ # CONFIG_SCHED_SMT is not set
+ # CONFIG_DISABLE_CPU_SCHED_DOMAIN_BALANCE is not set
+@@ -402,24 +400,14 @@ CONFIG_TIGHT_PGDAT_BALANCE=y
+ CONFIG_GENERIC_EARLY_IOREMAP=y
+ CONFIG_MMAP_READAROUND_LIMIT=16
+ CONFIG_BALANCE_ANON_FILE_RECLAIM=y
+-# CONFIG_LARGE_DIRTY_BUFFER is not set
+-CONFIG_MAX_DIRTY_THRESH_PAGES=0
+ CONFIG_SECCOMP=y
+ CONFIG_KEXEC=y
+ # CONFIG_XEN is not set
+ CONFIG_FORCE_MAX_ZONEORDER=11
+-# CONFIG_UNMAP_KERNEL_AT_EL0 is not set
+ CONFIG_ARMV8_DEPRECATED=y
+ CONFIG_SWP_EMULATION=y
+ CONFIG_CP15_BARRIER_EMULATION=y
+ CONFIG_SETEND_EMULATION=y
+-# CONFIG_ARM64_SW_TTBR0_PAN is not set
+-
+-#
+-# ARMv8.1 architectural features
+-#
+-CONFIG_ARM64_PAN=y
+-CONFIG_ARM64_UAO=y
+ 
+ #
+ # Boot options
+@@ -428,7 +416,6 @@ CONFIG_CMDLINE=""
+ # CONFIG_EFI is not set
+ # CONFIG_TIMA is not set
+ CONFIG_TIMA_LKMAUTH=y
+-# CONFIG_UH_RKP is not set
+ # CONFIG_TIMA_TEST_INFRA is not set
+ # CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE is not set
+ 
+@@ -507,18 +494,12 @@ CONFIG_CPU_FREQ_STAT=y
+ # CONFIG_CPU_FREQ_DEFAULT_GOV_ONDEMAND is not set
+ # CONFIG_CPU_FREQ_DEFAULT_GOV_CONSERVATIVE is not set
+ CONFIG_CPU_FREQ_DEFAULT_GOV_INTERACTIVE=y
+-# CONFIG_CPU_FREQ_DEFAULT_GOV_SCHED is not set
+ CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
+ # CONFIG_CPU_FREQ_GOV_POWERSAVE is not set
+ CONFIG_CPU_FREQ_GOV_USERSPACE=y
+ # CONFIG_CPU_FREQ_GOV_ONDEMAND is not set
+ CONFIG_CPU_FREQ_GOV_INTERACTIVE=y
+ # CONFIG_CPU_FREQ_GOV_CONSERVATIVE is not set
+-# CONFIG_CPU_FREQ_GOV_SCHED is not set
+-
+-#
+-# CPU frequency scaling drivers
+-#
+ # CONFIG_CPUFREQ_DT is not set
+ 
+ #
+@@ -526,7 +507,6 @@ CONFIG_CPU_FREQ_GOV_INTERACTIVE=y
+ #
+ CONFIG_ARM_EXYNOS_MP_CPUFREQ=y
+ # CONFIG_ARM_KIRKWOOD_CPUFREQ is not set
+-CONFIG_ARM64_ERRATUM_843419=y
+ CONFIG_NET=y
+ CONFIG_COMPAT_NETLINK_MESSAGES=y
+ 
+@@ -561,7 +541,7 @@ CONFIG_IP_PNP_RARP=y
+ # CONFIG_NET_IPGRE_DEMUX is not set
+ CONFIG_NET_IP_TUNNEL=y
+ # CONFIG_IP_MROUTE is not set
+-CONFIG_SYN_COOKIES=y
++# CONFIG_SYN_COOKIES is not set
+ # CONFIG_NET_IPVTI is not set
+ # CONFIG_NET_UDP_TUNNEL is not set
+ # CONFIG_NET_FOU is not set
+@@ -937,6 +917,7 @@ CONFIG_NET_SCH_FIFO=y
+ # CONFIG_BATMAN_ADV is not set
+ # CONFIG_OPENVSWITCH is not set
+ # CONFIG_VSOCKETS is not set
++# CONFIG_NETLINK_MMAP is not set
+ # CONFIG_NETLINK_DIAG is not set
+ # CONFIG_NET_MPLS_GSO is not set
+ # CONFIG_HSR is not set
+@@ -1043,6 +1024,7 @@ CONFIG_ALLOW_DEV_COREDUMP=y
+ # CONFIG_DEBUG_DEVRES is not set
+ # CONFIG_SYS_HYPERVISOR is not set
+ # CONFIG_GENERIC_CPU_DEVICES is not set
++CONFIG_HAVE_CPU_AUTOPROBE=y
+ CONFIG_GENERIC_CPU_AUTOPROBE=y
+ CONFIG_SOC_BUS=y
+ CONFIG_REGMAP=y
+@@ -1128,8 +1110,8 @@ CONFIG_BLK_DEV_RAM_SIZE=8192
+ # CONFIG_USB_SWITCH_FSA9480 is not set
+ # CONFIG_LATTICE_ECP3_CONFIG is not set
+ # CONFIG_SRAM is not set
+-# CONFIG_UID_SYS_STATS is not set
+ # CONFIG_MEMORY_STATE_TIME is not set
++CONFIG_EXYNOS_POWEROFF=y
+ # CONFIG_C2PORT is not set
+ 
+ #
+@@ -1191,7 +1173,6 @@ CONFIG_UMTS_MODEM_SS310AP=y
+ # CONFIG_DEBUG_PKTLOG is not set
+ # CONFIG_LINK_CONTROL_MSG_IOSM is not set
+ CONFIG_CP_SECURE_BOOT=y
+-CONFIG_KLAT=y
+ 
+ #
+ # Samsung Modem Interface Driver for Memory-type Interface
+@@ -1285,8 +1266,6 @@ CONFIG_DM_CRYPT=y
+ # CONFIG_DM_UEVENT is not set
+ # CONFIG_DM_FLAKEY is not set
+ CONFIG_DM_VERITY=y
+-# CONFIG_DM_VERITY_HASH_PREFETCH_MIN_SIZE_128 is not set
+-CONFIG_DM_VERITY_HASH_PREFETCH_MIN_SIZE=1
+ # CONFIG_DM_VERITY_FEC is not set
+ # CONFIG_DM_SWITCH is not set
+ # CONFIG_DM_LOG_WRITES is not set
+@@ -1462,11 +1441,6 @@ CONFIG_WCNSS_MEM_PRE_ALLOC=y
+ # CONFIG_WL_TI is not set
+ # CONFIG_MWIFIEX is not set
+ 
+-#
+-# Qualcomm Atheros CLD WLAN module
+-#
+-# CONFIG_QCA_CLD_WLAN is not set
+-
+ #
+ # Enable WiMAX (Networking options) to see the WiMAX drivers
+ #
+@@ -1490,7 +1464,7 @@ CONFIG_INPUT_MOUSEDEV_PSAUX=y
+ CONFIG_INPUT_MOUSEDEV_SCREEN_X=1024
+ CONFIG_INPUT_MOUSEDEV_SCREEN_Y=768
+ # CONFIG_INPUT_JOYDEV is not set
+-CONFIG_INPUT_EVDEV=m
++CONFIG_INPUT_EVDEV=y
+ # CONFIG_INPUT_EVBUG is not set
+ CONFIG_INPUT_KEYRESET=y
+ # CONFIG_GLOVE_TOUCH is not set
+@@ -1676,7 +1650,6 @@ CONFIG_DEVPTS_MULTIPLE_INSTANCES=y
+ # CONFIG_SERIAL_NONSTANDARD is not set
+ # CONFIG_N_GSM is not set
+ # CONFIG_TRACE_SINK is not set
+-CONFIG_LDISC_AUTOLOAD=y
+ # CONFIG_DEVMEM is not set
+ # CONFIG_DEVKMEM is not set
+ 
+@@ -1718,6 +1691,7 @@ CONFIG_EXYRNG_FIPS_COMPLIANCE=y
+ # CONFIG_EXYRNG_FAIL_POLICY_DISABLE is not set
+ CONFIG_EXYRNG_FAIL_POLICY_RESET=y
+ CONFIG_EXYRNG_USE_CRYPTOMANAGER=y
++# CONFIG_R3964 is not set
+ 
+ #
+ # PCMCIA character devices
+@@ -2376,7 +2350,6 @@ CONFIG_MALI_T83X=y
+ # CONFIG_MALI_R12P0 is not set
+ CONFIG_MALI_R15P0=y
+ # CONFIG_MALI_R22P0 is not set
+-# CONFIG_MALI_R28P0 is not set
+ # CONFIG_MALI_DMA_FENCE is not set
+ # CONFIG_MALI_PRFCNT_SET_SECONDARY is not set
+ CONFIG_EXYNOS_SOC_NAME="7880"
+@@ -2449,7 +2422,6 @@ CONFIG_EXYNOS_VPP=y
+ CONFIG_EXYNOS_DECON_7880=y
+ CONFIG_EXYNOS7880_DISPLAY_TE_IRQ_GPIO=y
+ # CONFIG_EXYNOS7880_DISPLAY_TE_IRQ_GIC is not set
+-# CONFIG_LOGGING_BIGDATA_BUG is not set
+ CONFIG_EXYNOS_DECON7880_LCD=y
+ CONFIG_EXYNOS_DECON_LCD_SYSFS=y
+ CONFIG_PANEL_AID_DIMMING=y
+@@ -2680,7 +2652,6 @@ CONFIG_HID_LCPOWER=y
+ # CONFIG_HID_LENOVO is not set
+ CONFIG_HID_LOGITECH=y
+ CONFIG_HID_LOGITECH_DJ=y
+-# CONFIG_HID_LOGITECH_HIDPP is not set
+ CONFIG_LOGITECH_FF=y
+ CONFIG_LOGIRUMBLEPAD2_FF=y
+ CONFIG_LOGIG940_FF=y
+@@ -2754,10 +2725,8 @@ CONFIG_USB_DEFAULT_PERSIST=y
+ # CONFIG_USB_DYNAMIC_MINORS is not set
+ # CONFIG_USB_OTG is not set
+ # CONFIG_USB_OTG_WHITELIST is not set
+-# CONFIG_USB_OTG_WHITELIST_FOR_MDM is not set
+ # CONFIG_USB_OTG_BLACKLIST_HUB is not set
+ # CONFIG_USB_OTG_FSM is not set
+-# CONFIG_HOST_COMPLIANT_TEST is not set
+ # CONFIG_USB_MON is not set
+ # CONFIG_USB_WUSB_CBAF is not set
+ 
+@@ -2945,6 +2914,7 @@ CONFIG_USB_SERIAL_PL2303=y
+ # CONFIG_USB_PHY is not set
+ CONFIG_USB_OTG_WAKELOCK=y
+ # CONFIG_NOP_USB_XCEIV is not set
++CONFIG_DUAL_ROLE_USB_INTF=y
+ # CONFIG_USB_GPIO_VBUS is not set
+ # CONFIG_USB_ISP1301 is not set
+ # CONFIG_USB_ULPI is not set
+@@ -2972,14 +2942,13 @@ CONFIG_USB_LIBCOMPOSITE=y
+ CONFIG_USB_F_ACM=y
+ CONFIG_USB_U_SERIAL=y
+ # CONFIG_USB_CONFIGFS is not set
++CONFIG_USB_RNDIS_MULTIPACKET=y
+ CONFIG_USB_G_ANDROID=y
+ CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE=y
+ # CONFIG_USB_ANDROID_SAMSUNG_MTP is not set
+ # CONFIG_USB_LOCK_SUPPORT_FOR_MDM is not set
+ # CONFIG_USB_DUN_SUPPORT is not set
+ CONFIG_USB_NCM_SUPPORT_MTU_CHANGE=y
+-CONFIG_USB_RNDIS_MULTIPACKET=y
+-# CONFIG_USB_ANDROID_SAMSUNG_CCR_PROTOCOL is not set
+ # CONFIG_USB_ANDROID_RNDIS_DWORD_ALIGNED is not set
+ # CONFIG_USB_ZERO is not set
+ # CONFIG_USB_AUDIO is not set
+@@ -2999,17 +2968,11 @@ CONFIG_USB_RNDIS_MULTIPACKET=y
+ # CONFIG_USB_G_DBGP is not set
+ # CONFIG_USB_G_WEBCAM is not set
+ 
+-#
+-# USB Power Delivery and Type-C drivers
+-#
+-CONFIG_TYPEC=y
+-
+ #
+ # USB PD configs
+ #
+ CONFIG_USE_CCIC=y
+ CONFIG_CCIC_S2MU004=y
+-# CONFIG_CCIC_VDM is not set
+ # CONFIG_CCIC_S2MM005 is not set
+ CONFIG_CCIC_NOTIFIER=y
+ # CONFIG_CCIC_ALTERNATE_MODE is not set
+@@ -3031,7 +2994,6 @@ CONFIG_MMC_BLOCK_MINORS=8
+ CONFIG_MMC_BLOCK_BOUNCE=y
+ # CONFIG_SDIO_UART is not set
+ # CONFIG_MMC_TEST is not set
+-# CONFIG_MMC_SIMULATE_MAX_SPEED is not set
+ 
+ #
+ # MMC/SD/SDIO Host Controller Drivers
+@@ -3319,6 +3281,7 @@ CONFIG_STAGING=y
+ #
+ # CONFIG_IIO_PERIODIC_RTC_TRIGGER is not set
+ # CONFIG_IIO_SIMPLE_DUMMY is not set
++# CONFIG_BCM_WIMAX is not set
+ # CONFIG_FT1000 is not set
+ 
+ #
+@@ -3370,6 +3333,8 @@ CONFIG_ION_EXYNOS_SIZE_SECTBL=0
+ CONFIG_ION_EXYNOS_SIZE_G2D_WFD=0
+ CONFIG_ION_EXYNOS_SIZE_VIDEO=0
+ CONFIG_ION_EXYNOS_SIZE_MFC_NFWVIDEO=0
++# CONFIG_FIQ_DEBUGGER is not set
++# CONFIG_FIQ_WATCHDOG is not set
+ # CONFIG_USB_WPAN_HCD is not set
+ # CONFIG_WIMAX_GDM72XX is not set
+ # CONFIG_LTE_GDM724X is not set
+@@ -3424,7 +3389,6 @@ CONFIG_SEC_NAD_MANUAL_PARAM_READTIME=10
+ # CONFIG_SEC_DUMP_SUMMARY is not set
+ # CONFIG_KFAULT_AUTO_SUMMARY is not set
+ CONFIG_VNSWAP=y
+-# CONFIG_GOLDFISH is not set
+ 
+ #
+ # SOC (System On Chip) specific Drivers
+@@ -3742,7 +3706,6 @@ CONFIG_CHARGER_S2MU004=y
+ # CONFIG_WIRELESS_CHARGER_P9220 is not set
+ CONFIG_BATTERY_NOTIFIER=y
+ # CONFIG_XADC_SHARE_BATT_WITH_USB_THM is not set
+-# CONFIG_S2MU004_MODE_CHANGE_BY_TOPOFF is not set
+ # CONFIG_RESET_CONTROLLER is not set
+ # CONFIG_FMC is not set
+ 
+@@ -3900,7 +3863,6 @@ CONFIG_FS_MBCACHE=y
+ # CONFIG_NILFS2_FS is not set
+ CONFIG_FS_POSIX_ACL=y
+ CONFIG_FILE_LOCKING=y
+-# CONFIG_FS_ENCRYPTION is not set
+ CONFIG_FSNOTIFY=y
+ CONFIG_DNOTIFY=y
+ CONFIG_INOTIFY_USER=y
+@@ -3962,9 +3924,7 @@ CONFIG_PROC_FS=y
+ # CONFIG_PROC_KCORE is not set
+ CONFIG_PROC_SYSCTL=y
+ CONFIG_PROC_PAGE_MONITOR=y
+-CONFIG_PROC_FSLOG=y
+ CONFIG_PROC_STLOG=y
+-CONFIG_PROC_DLOG=y
+ CONFIG_KERNFS=y
+ CONFIG_SYSFS=y
+ CONFIG_TMPFS=y
+@@ -4135,7 +4095,6 @@ CONFIG_BOOTPARAM_HUNG_TASK_PANIC_VALUE=0
+ CONFIG_PANIC_ON_OOPS_VALUE=0
+ CONFIG_PANIC_TIMEOUT=0
+ # CONFIG_SCHED_DEBUG is not set
+-# CONFIG_PANIC_ON_RT_THROTTLING is not set
+ # CONFIG_SCHEDSTATS is not set
+ # CONFIG_SCHED_STACK_END_CHECK is not set
+ # CONFIG_TIMER_STATS is not set
+@@ -4222,12 +4181,6 @@ CONFIG_HAVE_ARCH_KGDB=y
+ CONFIG_TEXT_OFFSET_OVERRIDE=y
+ CONFIG_TEXT_OFFSET=0x1000
+ # CONFIG_DEBUG_SET_MODULE_RONX is not set
+-# CONFIG_DEBUG_RODATA is not set
+-
+-#
+-# Samsung Rooting Restriction Feature
+-#
+-# CONFIG_SEC_RESTRICT_ROOTING is not set
+ 
+ #
+ # Security options
+@@ -4265,9 +4218,6 @@ CONFIG_INTEGRITY=y
+ CONFIG_INTEGRITY_AUDIT=y
+ # CONFIG_IMA is not set
+ # CONFIG_EVM is not set
+-# CONFIG_SECURITY_DEFEX is not set
+-# CONFIG_DEFEX_KERNEL_ONLY is not set
+-# CONFIG_SECURITY_DSMS is not set
+ CONFIG_DEFAULT_SECURITY_SELINUX=y
+ # CONFIG_DEFAULT_SECURITY_DAC is not set
+ CONFIG_DEFAULT_SECURITY="selinux"
+@@ -4344,7 +4294,6 @@ CONFIG_CRYPTO_MD5=y
+ CONFIG_CRYPTO_SHA1=y
+ CONFIG_CRYPTO_SHA256=y
+ # CONFIG_CRYPTO_SHA512 is not set
+-# CONFIG_CRYPTO_SHA256_ARM is not set
+ # CONFIG_CRYPTO_TGR192 is not set
+ # CONFIG_CRYPTO_WP512 is not set
+ 
