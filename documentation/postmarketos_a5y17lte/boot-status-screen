@@ -1,0 +1,136 @@
+#!/usr/bin/python3
+"""Draw a boot status screen on the Galaxy A5 2017 framebuffer.
+
+The decon driver only exposes the real framebuffer through mmap (write() goes
+nowhere), and the command-mode panel only shows a new frame after an
+FBIOPAN_DISPLAY. The panel then keeps the image on its own.
+
+Usage: boot-status-screen ready|off
+"""
+import fcntl
+import mmap
+import os
+import sys
+import time
+
+W, H = 1080, 1920
+SCALE = 10
+FBIOGET_VSCREENINFO = 0x4600
+FBIOPAN_DISPLAY = 0x4606
+
+FONT = {
+    "0": "01110 10001 10011 10101 11001 10001 01110",
+    "1": "00100 01100 00100 00100 00100 00100 01110",
+    "2": "01110 10001 00001 00010 00100 01000 11111",
+    "3": "11111 00010 00100 00010 00001 10001 01110",
+    "4": "00010 00110 01010 10010 11111 00010 00010",
+    "5": "11111 10000 11110 00001 00001 10001 01110",
+    "6": "00110 01000 10000 11110 10001 10001 01110",
+    "7": "11111 00001 00010 00100 01000 01000 01000",
+    "8": "01110 10001 10001 01110 10001 10001 01110",
+    "9": "01110 10001 10001 01111 00001 00010 01100",
+    ".": "00000 00000 00000 00000 00000 01100 01100",
+    ":": "00000 01100 01100 00000 01100 01100 00000",
+    "-": "00000 00000 00000 11111 00000 00000 00000",
+    "A": "01110 10001 10001 11111 10001 10001 10001",
+    "B": "11110 10001 10001 11110 10001 10001 11110",
+    "C": "01110 10001 10000 10000 10000 10001 01110",
+    "D": "11100 10010 10001 10001 10001 10010 11100",
+    "E": "11111 10000 10000 11110 10000 10000 11111",
+    "F": "11111 10000 10000 11110 10000 10000 10000",
+    "G": "01110 10001 10000 10111 10001 10001 01111",
+    "H": "10001 10001 10001 11111 10001 10001 10001",
+    "I": "01110 00100 00100 00100 00100 00100 01110",
+    "L": "10000 10000 10000 10000 10000 10000 11111",
+    "N": "10001 11001 10101 10011 10001 10001 10001",
+    "O": "01110 10001 10001 10001 10001 10001 01110",
+    "P": "11110 10001 10001 11110 10000 10000 10000",
+    "R": "11110 10001 10001 11110 10100 10010 10001",
+    "S": "01111 10000 10000 01110 00001 00001 11110",
+    "T": "11111 00100 00100 00100 00100 00100 00100",
+    "U": "10001 10001 10001 10001 10001 10001 01110",
+    "W": "10001 10001 10001 10101 10101 10101 01010",
+    "Y": "10001 10001 01010 00100 00100 00100 00100",
+}
+
+
+def rgba(r, g, b):
+    return bytes([r, g, b, 255])
+
+
+def draw(lines, bg, fg):
+    frame = bytearray(bg * (W * H))
+    y = 200
+    for text in lines:
+        x = 60
+        for ch in text.upper():
+            glyph = FONT.get(ch)
+            if glyph:
+                for gy, row in enumerate(glyph.split()):
+                    for gx, bit in enumerate(row):
+                        if bit != "1":
+                            continue
+                        px = x + gx * SCALE
+                        for sy in range(SCALE):
+                            off = ((y + gy * SCALE + sy) * W + px) * 4
+                            frame[off:off + SCALE * 4] = fg * SCALE
+            x += 6 * SCALE
+            if x + 5 * SCALE > W:
+                break
+        y += 10 * SCALE
+
+    fd = os.open("/dev/fb0", os.O_RDWR)
+    try:
+        fb = mmap.mmap(fd, W * H * 4, mmap.MAP_SHARED,
+                       mmap.PROT_READ | mmap.PROT_WRITE)
+        fb[:] = frame
+        var = bytearray(160)
+        fcntl.ioctl(fd, FBIOGET_VSCREENINFO, var)
+        fcntl.ioctl(fd, FBIOPAN_DISPLAY, var)
+        fb.close()
+    finally:
+        os.close(fd)
+
+
+def local_ipv4s():
+    """IPv4 addresses from /proc/net/fib_trie.
+
+    Doesn't use netlink/ioctls: those take the rtnl lock, which the qcacld
+    wlan driver sometimes holds forever (`ip addr` then hangs in D state).
+    """
+    addrs, prev = [], None
+    try:
+        with open("/proc/net/fib_trie") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("/32 host LOCAL") and prev:
+                    if not prev.startswith("127.") and prev not in addrs:
+                        addrs.append(prev)
+                elif line.startswith("|--"):
+                    prev = line[3:].strip()
+    except OSError:
+        pass
+    return addrs
+
+
+def ready():
+    # Draw right away, then add addresses as networking comes up.
+    last = None
+    deadline = time.monotonic() + 90
+    while True:
+        addrs = local_ipv4s()
+        if addrs != last:
+            draw(["READY", "", *addrs], rgba(0, 0, 0), rgba(0, 255, 65))
+            last = addrs
+        if any(not a.startswith("172.16.") for a in addrs) or time.monotonic() > deadline:
+            return
+        time.sleep(3)
+
+
+def off():
+    draw(["SHUTTING", "DOWN"], rgba(0, 0, 0), rgba(255, 30, 30))
+
+
+if __name__ == "__main__":
+    mode = sys.argv[1] if len(sys.argv) > 1 else "ready"
+    {"ready": ready, "off": off}[mode]()

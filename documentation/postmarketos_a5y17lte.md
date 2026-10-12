@@ -26,8 +26,10 @@ pmOS installs into the `SYSTEM` partition as a disk image with its own partition
 
 - Boots to a console system (OpenRC), SSH over USB and over Wi-Fi.
 - Wi-Fi works (qcacld driver + firmware from `firmware-samsung-universal7880`).
-- The screen never shows anything after the Samsung logo: the kernel has no framebuffer console.
-- Boot time: kernel + initramfs ≈ 4 s; the rest was 3 minutes of firmware timeouts (fix #9,
+- The screen works through the framebuffer (no text console: the kernel has no
+  `CONFIG_FRAMEBUFFER_CONSOLE`). A small boot status screen shows **READY** + IP addresses in
+  green on black once the phone is up, and **SHUTTING DOWN** in red on shutdown.
+- Boot time: kernel + initramfs env 4 s; the rest was 3 minutes of firmware timeouts (fix #9,
   **not yet confirmed on the phone at the time of writing**).
 
 ## What was wrong, in boot order
@@ -78,7 +80,8 @@ Each problem hid the next one. Numbers match the patches/fixes further down.
 12. **Random resets ~2.5–3.5 min after boot.** No kernel panic recorded (hard lockup). Prime
     suspect: `msm-fb-refresher` (a Qualcomm display hack that keeps poking the framebuffer) in the
     `boot` runlevel; the phone also froze once right after something drew to the framebuffer.
-    Fix: `rc-update del msm-fb-refresher boot`. Not proven, but no resets since.
+    Fix: `rc-update del msm-fb-refresher boot`. Not proven, but no resets since. It isn't needed
+    either: the panel keeps its image after a single pan (see "Display").
 13. **No DHCP on USB in the booted system.** `unudhcpd.usb0` serves `usb0`, but with Samsung's
     `android_usb` gadget the interface is `rndis0`. Fix: run `unudhcpd.rndis0` instead.
 14. **Wi-Fi handshake failing.** Driver trace showed `ST:ASSOC`, then the router's first WPA
@@ -192,7 +195,7 @@ sudo ln -sf unudhcpd /etc/init.d/unudhcpd.rndis0
 sudo rc-update add unudhcpd.rndis0 boot
 sudo rc-update del unudhcpd.usb0 boot
 
-# suspected cause of the random resets; the display doesn't work anyway
+# suspected cause of the random resets; the panel doesn't need it
 sudo rc-update del msm-fb-refresher boot
 
 # Wi-Fi: no MAC randomisation for the qcacld driver
@@ -206,6 +209,58 @@ ssh-copy-id alexis@172.16.42.1
 ```
 
 Over SSH, NetworkManager calls need `sudo` (the session isn't "local" for polkit).
+
+My `~/.ssh/config` has `Host samsung-a5` → `HostName samsung-a5y17lte`, `User alexis`; the
+Livebox resolves the hostname, so `ssh samsung-a5` works over Wi-Fi without the cable.
+
+### 8. Boot status screen
+
+Copy [`boot-status-screen`](postmarketos_a5y17lte/boot-status-screen) and
+[`boot-status-screen.initd`](postmarketos_a5y17lte/boot-status-screen.initd) to the phone's
+`/tmp`, then:
+
+```sh
+sudo install -Dm755 /tmp/boot-status-screen /usr/local/bin/boot-status-screen
+sudo install -Dm755 /tmp/boot-status-screen.initd /etc/init.d/boot-status-screen
+sudo rc-update add boot-status-screen default
+sudo rc-service boot-status-screen start
+```
+
+It runs after `sshd` and `networkmanager`: black screen with **READY** and the IPv4 addresses in
+green (redrawn for up to 90 s while Wi-Fi comes up), and **SHUTTING DOWN** in red when the
+service stops. Only needs `python3`, which is already installed.
+
+## Display
+
+The display works without any kernel change; it just doesn't behave like a normal framebuffer.
+
+- Panel: Samsung `s6e3fa3` AMOLED, 1080×1920, MIPI **command mode**, driven by Samsung's
+  `decon_7880` fbdev driver. No DRM (`# CONFIG_DRM is not set`), so no modern graphical UI.
+- The device hook's blank/unblank powers it on at ~4 s (`dsim_panel_displayon` in `dmesg`).
+- **`write()` to `/dev/fb0` goes nowhere**: reading it back returns nothing. The real buffer
+  (ION memory) is only reachable with **`mmap`**.
+- After drawing, one **`FBIOPAN_DISPLAY`** ioctl (`0x4606`) makes `decon_pan_display` point the
+  hardware at the buffer and push a frame. The panel then **keeps the image by itself**: no
+  periodic refresh, so `msm-fb-refresher` isn't needed.
+- Pixel format is **R, G, B, A** bytes (`DECON_PIXEL_FORMAT_ABGR_8888`), stride 4320.
+- The user needs to be in the `video` group (default) to draw.
+
+Minimal test (red top half, blue bottom half):
+
+```python
+import fcntl, os, mmap
+fd = os.open("/dev/fb0", os.O_RDWR)
+m = mmap.mmap(fd, 1080*1920*4, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE)
+half = 1080 * 960 * 4
+m[:half] = bytes([255, 0, 0, 255]) * (half // 4)
+m[half:2*half] = bytes([0, 0, 255, 255]) * (half // 4)
+var = bytearray(160)
+fcntl.ioctl(fd, 0x4600, var)   # FBIOGET_VSCREENINFO
+fcntl.ioctl(fd, 0x4606, var)   # FBIOPAN_DISPLAY
+```
+
+A text console on the screen would still need a kernel with `CONFIG_FRAMEBUFFER_CONSOLE`, and
+`fbcon` uses the same pan path, so it may well work; untested.
 
 ## Updating the boot image later
 
@@ -251,7 +306,11 @@ driven by a log. What worked:
 
 ## Known limitations / open items
 
-- Display: nothing after the Samsung logo (no `CONFIG_FRAMEBUFFER_CONSOLE`).
+- Display: graphics through the framebuffer only (status screen); no text console, no GUI.
+- **Wi-Fi driver lock-up:** the qcacld driver sometimes holds the kernel's network config lock
+  (rtnl) forever. NetworkManager, wpa_supplicant and any `ip addr` then hang in `D` state and the
+  load average climbs (~9), while existing connections (SSH) keep working. The status screen reads
+  `/proc/net/fib_trie` instead of `ip` for that reason. Not investigated yet.
 - USB data needs a replug after every boot.
 - `nftables` service doesn't start (old kernel); the firewall is effectively off.
 - Fix #9 (firmware timeout, device pkgrel 3) was written at the end of the session; check that a

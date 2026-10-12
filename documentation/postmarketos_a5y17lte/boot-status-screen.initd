@@ -1,0 +1,20 @@
+#!/sbin/openrc-run
+
+description="Show boot status (READY + IP addresses) on the framebuffer"
+
+depend() {
+	need localmount
+	after sshd networkmanager
+}
+
+start() {
+	ebegin "Drawing boot status screen"
+	/usr/local/bin/boot-status-screen ready >/dev/null 2>&1 &
+	eend 0
+}
+
+stop() {
+	ebegin "Drawing shutdown screen"
+	/usr/local/bin/boot-status-screen off >/dev/null 2>&1
+	eend 0
+}
