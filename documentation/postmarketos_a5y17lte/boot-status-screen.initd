@@ -1,19 +1,18 @@
 #!/sbin/openrc-run
 
-description="Show boot status (READY + IP addresses) on the framebuffer"
+description="Status screen (READY + IP addresses) that sleeps when idle and wakes on input"
+
+command=/usr/local/bin/boot-status-screen
+command_args="daemon"
+command_background=yes
+pidfile=/run/boot-status-screen.pid
 
 depend() {
 	need localmount
 	after sshd networkmanager
 }
 
-start() {
-	ebegin "Drawing boot status screen"
-	/usr/local/bin/boot-status-screen ready >/dev/null 2>&1 &
-	eend 0
-}
-
-stop() {
+stop_post() {
 	ebegin "Drawing shutdown screen"
 	/usr/local/bin/boot-status-screen off >/dev/null 2>&1
 	eend 0

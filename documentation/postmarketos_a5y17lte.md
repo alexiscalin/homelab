@@ -28,9 +28,11 @@ pmOS installs into the `SYSTEM` partition as a disk image with its own partition
 - Wi-Fi works (qcacld driver + firmware from `firmware-samsung-universal7880`).
 - The screen works through the framebuffer (no text console: the kernel has no
   `CONFIG_FRAMEBUFFER_CONSOLE`). A small boot status screen shows **READY** + IP addresses in
-  green on black once the phone is up, and **SHUTTING DOWN** in red on shutdown.
+  green on black once the phone is up (sleeps after 30 s, any button wakes it), and
+  **SHUTTING DOWN** in red on shutdown.
 - Boot time: kernel + initramfs env 4 s; the rest was 3 minutes of firmware timeouts (fix #9,
-  **not yet confirmed on the phone at the time of writing**).
+  confirmed: the three missing firmware files now fail at 6.7 s, 7.7 s and 9.0 s instead of
+  costing 60 s each).
 
 ## What was wrong, in boot order
 
@@ -226,9 +228,19 @@ sudo rc-update add boot-status-screen default
 sudo rc-service boot-status-screen start
 ```
 
-It runs after `sshd` and `networkmanager`: black screen with **READY** and the IPv4 addresses in
-green (redrawn for up to 90 s while Wi-Fi comes up), and **SHUTTING DOWN** in red when the
-service stops. Only needs `python3`, which is already installed.
+It runs after `sshd` and `networkmanager` as a small daemon (`boot-status-screen daemon`):
+
+- black screen with **READY** and the IPv4 addresses in green, redrawn when an address appears or
+  changes;
+- after **30 s without input** it powers the panel down (`echo 4 > /sys/class/graphics/fb0/blank`);
+- any button (Power, Volume, Home, the two capacitive keys) powers it back up and redraws;
+- **SHUTTING DOWN** in red when the service stops.
+
+Touching the screen doesn't wake it: Samsung's `bt532_ts` driver powers the touch controller off
+together with the panel (`bt532_power_ctrl: off` in `dmesg`), like stock Android. Touch works
+while the screen is on and resets the timer. elogind has `HandlePowerKey=ignore`, so pressing
+Power only wakes the screen. Only needs `python3`, which is already installed; `boot-status-screen
+ready` / `off` still draw a single screen by hand (as root).
 
 ## Display
 
@@ -313,8 +325,6 @@ driven by a log. What worked:
   `/proc/net/fib_trie` instead of `ip` for that reason. Not investigated yet.
 - USB data needs a replug after every boot.
 - `nftables` service doesn't start (old kernel); the firewall is effectively off.
-- Fix #9 (firmware timeout, device pkgrel 3) was written at the end of the session; check that a
-  reboot now reaches SSH in ~15–20 s.
 - `pmbootstrap pull` / `git pull` in pmbootstrap can conflict with the local patches; keep the
   patch files here and re-apply.
 - Worth reporting upstream: #5 (pmbootstrap locale regression), #8 (`--direct-io` on old kernels),
