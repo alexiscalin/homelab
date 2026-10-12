@@ -55,6 +55,32 @@ index ad793883af..94e13ac78c 100644
 +# usermode helper and waits the default 60s, blocking udev for 3 minutes on
 +# every boot. The setting persists after switch_root.
 +echo 1 > /sys/class/firmware/timeout
+diff --git a/device/archived/firmware-samsung-universal7880/APKBUILD b/device/archived/firmware-samsung-universal7880/APKBUILD
+index a431d2dc28..2437b085a0 100644
+--- a/device/archived/firmware-samsung-universal7880/APKBUILD
++++ b/device/archived/firmware-samsung-universal7880/APKBUILD
+@@ -2,7 +2,7 @@
+ maintainer=""
+ pkgname=firmware-samsung-universal7880
+ pkgver=1
+-pkgrel=0
++pkgrel=1
+ pkgdesc="Firmware for the Samsung devices on Exynos7880 SOC (a5y17lte, a7y17lte)"
+ url="https://github.com/TheMuppets/proprietary_vendor_samsung"
+ arch="aarch64"
+@@ -65,6 +65,12 @@ package() {
+ 
+ 	install -Dm644 "$srcdir/$_prefix_device-qcom_cfg.ini" \
+ 		"$pkgdir/lib/firmware/postmarketos/wlan/qcom_cfg.ini"
++	# Disable TDLS: implicit TDLS discovery blocks the qcacld MC thread while
++	# it holds the SME global lock; the next RSSI poll from NetworkManager
++	# then hangs holding genl_lock and all network configuration deadlocks.
++	sed -i -e 's/^gEnableTDLSSupport=1$/gEnableTDLSSupport=0/' \
++		-e 's/^gEnableTDLSImplicitTrigger=1$/gEnableTDLSImplicitTrigger=0/' \
++		"$pkgdir/lib/firmware/postmarketos/wlan/qcom_cfg.ini"
+ 	install -Dm644 "$srcdir/$_prefix_muppets-sec_s3nrn81_firmware.bin" \
+ 		"$pkgdir/lib/firmware/postmarketos/nfc/sec_s3nrn81_firmware.bin"
+ 
 diff --git a/device/archived/linux-samsung-a5y17lte/APKBUILD b/device/archived/linux-samsung-a5y17lte/APKBUILD
 index b92b44b78e..d3a4b19e91 100644
 --- a/device/archived/linux-samsung-a5y17lte/APKBUILD

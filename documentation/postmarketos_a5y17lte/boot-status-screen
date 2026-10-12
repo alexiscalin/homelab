@@ -1,33 +1,92 @@
 #!/usr/bin/python3
-"""Draw a boot status screen on the Galaxy A5 2017 framebuffer.
+"""Status screen for the Galaxy A5 2017 (samsung-a5y17lte) framebuffer.
 
 The decon driver only exposes the real framebuffer through mmap (write() goes
 nowhere), and the command-mode panel only shows a new frame after an
 FBIOPAN_DISPLAY. The panel then keeps the image on its own.
 
-The "daemon" mode powers the panel down after SLEEP_AFTER seconds without
-input and powers it back up on any key or touch.
+Everything shown is read from /proc and /sys only: the qcacld wlan driver
+sometimes holds the rtnl lock forever, and anything using netlink or network
+ioctls (ip, nmcli, iw) then hangs.
 
-Usage: boot-status-screen daemon|ready|off
+Modes:
+  daemon  draw the status screen, refresh it every REFRESH seconds, power the
+          panel down after SLEEP_AFTER seconds without input, wake on any key
+  once    draw the status screen once
+  off     draw the shutdown screen
 """
 import fcntl
 import mmap
 import os
 import select
+import subprocess
 import sys
 import time
 
 W, H = 1080, 1920
-SCALE = 10
 FBIOGET_VSCREENINFO = 0x4600
 FBIOPAN_DISPLAY = 0x4606
 FB_BLANK = "/sys/class/graphics/fb0/blank"
 SLEEP_AFTER = 30
+REFRESH = 10
+STUCK_AFTER = 20
 INPUTS = ("gpio_keys", "sec_touchkey", "sec_touchscreen")
 EV_KEY, EV_ABS = 1, 3
 EVENT_SIZE = 24  # struct input_event on aarch64
 
+
+def rgba(r, g, b):
+    return bytes([r, g, b, 255])
+
+
+BLACK = rgba(0, 0, 0)
+GREEN = rgba(0, 255, 65)
+DIM = rgba(0, 120, 30)
+AMBER = rgba(255, 176, 0)
+RED = rgba(255, 30, 30)
+
+# postmarketOS logo (small variant), from fastfetch
+LOGO = [
+    "        /\\",
+    "       /  \\",
+    "      /    \\",
+    "      \\__   \\",
+    "    /\\__ \\  _\\",
+    "   /   /  \\/ __",
+    "  /   / ____/  \\",
+    " /    \\ \\       \\",
+    "/_____/ /________\\",
+]
+LOGO_COLS = max(len(line) for line in LOGO)
+
+# 5x7 font; cells are 6x8 so characters get one blank column and row.
 FONT = {
+    "A": "01110 10001 10001 11111 10001 10001 10001",
+    "B": "11110 10001 10001 11110 10001 10001 11110",
+    "C": "01110 10001 10000 10000 10000 10001 01110",
+    "D": "11100 10010 10001 10001 10001 10010 11100",
+    "E": "11111 10000 10000 11110 10000 10000 11111",
+    "F": "11111 10000 10000 11110 10000 10000 10000",
+    "G": "01110 10001 10000 10111 10001 10001 01111",
+    "H": "10001 10001 10001 11111 10001 10001 10001",
+    "I": "01110 00100 00100 00100 00100 00100 01110",
+    "J": "00111 00010 00010 00010 00010 10010 01100",
+    "K": "10001 10010 10100 11000 10100 10010 10001",
+    "L": "10000 10000 10000 10000 10000 10000 11111",
+    "M": "10001 11011 10101 10101 10001 10001 10001",
+    "N": "10001 11001 10101 10011 10001 10001 10001",
+    "O": "01110 10001 10001 10001 10001 10001 01110",
+    "P": "11110 10001 10001 11110 10000 10000 10000",
+    "Q": "01110 10001 10001 10001 10101 10010 01101",
+    "R": "11110 10001 10001 11110 10100 10010 10001",
+    "S": "01111 10000 10000 01110 00001 00001 11110",
+    "T": "11111 00100 00100 00100 00100 00100 00100",
+    "U": "10001 10001 10001 10001 10001 10001 01110",
+    "V": "10001 10001 10001 10001 10001 01010 00100",
+    "W": "10001 10001 10001 10101 10101 10101 01010",
+    "X": "10001 10001 01010 00100 01010 10001 10001",
+    "Y": "10001 10001 01010 00100 00100 00100 00100",
+    "Z": "11111 00001 00010 00100 01000 10000 11111",
     "0": "01110 10001 10011 10101 11001 10001 01110",
     "1": "00100 01100 00100 00100 00100 00100 01110",
     "2": "01110 10001 00001 00010 00100 01000 11111",
@@ -39,105 +98,259 @@ FONT = {
     "8": "01110 10001 10001 01110 10001 10001 01110",
     "9": "01110 10001 10001 01111 00001 00010 01100",
     ".": "00000 00000 00000 00000 00000 01100 01100",
+    ",": "00000 00000 00000 00000 01100 00100 01000",
     ":": "00000 01100 01100 00000 01100 01100 00000",
     "-": "00000 00000 00000 11111 00000 00000 00000",
-    "A": "01110 10001 10001 11111 10001 10001 10001",
-    "B": "11110 10001 10001 11110 10001 10001 11110",
-    "C": "01110 10001 10000 10000 10000 10001 01110",
-    "D": "11100 10010 10001 10001 10001 10010 11100",
-    "E": "11111 10000 10000 11110 10000 10000 11111",
-    "F": "11111 10000 10000 11110 10000 10000 10000",
-    "G": "01110 10001 10000 10111 10001 10001 01111",
-    "H": "10001 10001 10001 11111 10001 10001 10001",
-    "I": "01110 00100 00100 00100 00100 00100 01110",
-    "L": "10000 10000 10000 10000 10000 10000 11111",
-    "N": "10001 11001 10101 10011 10001 10001 10001",
-    "O": "01110 10001 10001 10001 10001 10001 01110",
-    "P": "11110 10001 10001 11110 10000 10000 10000",
-    "R": "11110 10001 10001 11110 10100 10010 10001",
-    "S": "01111 10000 10000 01110 00001 00001 11110",
-    "T": "11111 00100 00100 00100 00100 00100 00100",
-    "U": "10001 10001 10001 10001 10001 10001 01110",
-    "W": "10001 10001 10001 10101 10101 10101 01010",
-    "Y": "10001 10001 01010 00100 00100 00100 00100",
+    "+": "00000 00100 00100 11111 00100 00100 00000",
+    "/": "00001 00010 00010 00100 01000 01000 10000",
+    "%": "11000 11001 00010 00100 01000 10011 00011",
+    "(": "00010 00100 01000 01000 01000 00100 00010",
+    ")": "01000 00100 00010 00010 00010 00100 01000",
+    "'": "00100 00100 01000 00000 00000 00000 00000",
+    "=": "00000 00000 11111 00000 11111 00000 00000",
+    "_": "00000 00000 00000 00000 00000 00000 11111",
+    "*": "01100 10010 10010 01100 00000 00000 00000",  # degree sign
 }
 
 
-def rgba(r, g, b):
-    return bytes([r, g, b, 255])
+def text_rows(ch):
+    rows = FONT.get(ch.upper())
+    return [r + "0" for r in rows.split()] + ["000000"] if rows else ["000000"] * 8
 
 
-def draw(lines, bg, fg):
-    frame = bytearray(bg * (W * H))
-    y = 200
-    for text in lines:
-        x = 60
-        for ch in text.upper():
-            glyph = FONT.get(ch)
-            if glyph:
-                for gy, row in enumerate(glyph.split()):
-                    for gx, bit in enumerate(row):
-                        if bit != "1":
-                            continue
-                        px = x + gx * SCALE
-                        for sy in range(SCALE):
-                            off = ((y + gy * SCALE + sy) * W + px) * 4
-                            frame[off:off + SCALE * 4] = fg * SCALE
-            x += 6 * SCALE
-            if x + 5 * SCALE > W:
+def logo_rows(ch):
+    # 6x12 cells (terminal-like 1:2 aspect) with full-cell strokes, so
+    # neighbouring characters join into one outline at the right angles.
+    rows = [["0"] * 6 for _ in range(12)]
+    if ch == "/":
+        for y in range(12):
+            x = round(5 - y * 5 / 11)
+            rows[y][x] = rows[y][max(x - 1, 0)] = "1"
+    elif ch == "\\":
+        for y in range(12):
+            x = round(y * 5 / 11)
+            rows[y][x] = rows[y][min(x + 1, 5)] = "1"
+    elif ch == "_":
+        rows[10] = rows[11] = ["1"] * 6
+    return ["".join(r) for r in rows]
+
+
+class Canvas:
+    def __init__(self, bg):
+        self.bg = bg
+        self.frame = bytearray(bg * (W * H))
+        self.cache = {}
+
+    def _row_bytes(self, bits, scale, fg):
+        key = (bits, scale, fg)
+        if key not in self.cache:
+            self.cache[key] = b"".join((fg if b == "1" else self.bg) * scale for b in bits)
+        return self.cache[key]
+
+    def text(self, x, y, text, fg, scale, rows_for=text_rows):
+        for ch in text:
+            if x + 6 * scale > W:
                 break
-        y += 10 * SCALE
+            if ch != " ":
+                for gy, bits in enumerate(rows_for(ch)):
+                    if "1" not in bits:
+                        continue
+                    row = self._row_bytes(bits, scale, fg)
+                    for sy in range(scale):
+                        off = ((y + gy * scale + sy) * W + x) * 4
+                        self.frame[off:off + len(row)] = row
+            x += 6 * scale
 
-    fd = os.open("/dev/fb0", os.O_RDWR)
+    def logo(self, y, fg, scale=5):
+        x = 60
+        for i, line in enumerate(LOGO):
+            self.text(x, y + i * 12 * scale, line, fg, scale, rows_for=logo_rows)
+
+    def show(self):
+        fd = os.open("/dev/fb0", os.O_RDWR)
+        try:
+            fb = mmap.mmap(fd, W * H * 4, mmap.MAP_SHARED,
+                           mmap.PROT_READ | mmap.PROT_WRITE)
+            fb[:] = self.frame
+            var = bytearray(160)
+            fcntl.ioctl(fd, FBIOGET_VSCREENINFO, var)
+            fcntl.ioctl(fd, FBIOPAN_DISPLAY, var)
+            fb.close()
+        finally:
+            os.close(fd)
+
+
+def read(path, default=""):
     try:
-        fb = mmap.mmap(fd, W * H * 4, mmap.MAP_SHARED,
-                       mmap.PROT_READ | mmap.PROT_WRITE)
-        fb[:] = frame
-        var = bytearray(160)
-        fcntl.ioctl(fd, FBIOGET_VSCREENINFO, var)
-        fcntl.ioctl(fd, FBIOPAN_DISPLAY, var)
-        fb.close()
-    finally:
-        os.close(fd)
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def os_name():
+    for line in read("/etc/os-release").splitlines():
+        if line.startswith("PRETTY_NAME="):
+            return line.split("=", 1)[1].strip('"')
+    return "?"
+
+
+def uptime():
+    secs = int(float(read("/proc/uptime", "0").split()[0]))
+    d, rem = divmod(secs, 86400)
+    h, rem = divmod(rem, 3600)
+    m = rem // 60
+    return "%dD %02dH %02dM" % (d, h, m) if d else "%dH %02dM" % (h, m)
+
+
+def temps():
+    zones = []
+    for z in sorted(os.listdir("/sys/class/thermal")):
+        t = read("/sys/class/thermal/%s/temp" % z)
+        if z.startswith("thermal_zone") and t.lstrip("-").isdigit():
+            zones.append(int(t) / 1000)
+    soc = "%d*" % max(zones) if zones else "?"
+    bat = read("/sys/class/power_supply/battery/temp")
+    bat = "%d*" % (int(bat) / 10) if bat.lstrip("-").isdigit() else "?"
+    return soc, bat
+
+
+def battery():
+    cap = read("/sys/class/power_supply/battery/capacity", "?")
+    status = read("/sys/class/power_supply/battery/status", "?").upper()
+    return "%s%% %s" % (cap, status)
+
+
+def memory():
+    info = {}
+    for line in read("/proc/meminfo").splitlines():
+        k, v = line.split(":", 1)
+        info[k] = int(v.split()[0])
+    total = info.get("MemTotal", 0) // 1024
+    used = total - info.get("MemAvailable", 0) // 1024
+    return "%d / %d MB" % (used, total)
 
 
 def local_ipv4s():
-    """IPv4 addresses from /proc/net/fib_trie.
-
-    Doesn't use netlink/ioctls: those take the rtnl lock, which the qcacld
-    wlan driver sometimes holds forever (`ip addr` then hangs in D state).
-    """
     addrs, prev = [], None
-    try:
-        with open("/proc/net/fib_trie") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("/32 host LOCAL") and prev:
-                    if not prev.startswith("127.") and prev not in addrs:
-                        addrs.append(prev)
-                elif line.startswith("|--"):
-                    prev = line[3:].strip()
-    except OSError:
-        pass
+    for line in read("/proc/net/fib_trie").splitlines():
+        line = line.strip()
+        if line.startswith("/32 host LOCAL") and prev:
+            if not prev.startswith("127.") and prev not in addrs:
+                addrs.append(prev)
+        elif line.startswith("|--"):
+            prev = line[3:].strip()
     return addrs
 
 
-def ready_screen():
-    draw(["READY", "", *local_ipv4s()], rgba(0, 0, 0), rgba(0, 255, 65))
+def wifi():
+    if read("/sys/class/net/wlan0/operstate") != "up" or read("/sys/class/net/wlan0/carrier") != "1":
+        return "DOWN", RED
+    if not any(not a.startswith("172.16.") for a in local_ipv4s()):
+        return "NO ADDRESS", AMBER
+    gateway = None
+    for line in read("/proc/net/route").splitlines()[1:]:
+        f = line.split()
+        if f[0] == "wlan0" and f[1] == "00000000":
+            gateway = ".".join(str(b) for b in reversed(bytes.fromhex(f[2])))
+    if not gateway:
+        return "NO ROUTE", AMBER
+    for line in read("/proc/net/arp").splitlines()[1:]:
+        f = line.split()
+        if f[0] == gateway and f[2] == "0x2":
+            return "CONNECTED", GREEN
+    return "NO GATEWAY", AMBER
 
 
-def ready():
-    # Draw right away, then add addresses as networking comes up.
-    last = None
-    deadline = time.monotonic() + 90
-    while True:
-        addrs = local_ipv4s()
-        if addrs != last:
-            ready_screen()
-            last = addrs
-        if any(not a.startswith("172.16.") for a in addrs) or time.monotonic() > deadline:
-            return
-        time.sleep(3)
+def ssh():
+    pid = read("/run/sshd.pid")
+    if not pid or not os.path.exists("/proc/" + pid):
+        return "OFF", RED
+    sessions = 0
+    for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+        for line in read(table).splitlines()[1:]:
+            f = line.split()
+            if f[1].endswith(":0016") and f[3] == "01":
+                sessions += 1
+    return "ON  %d SESSION%s" % (sessions, "" if sessions == 1 else "S"), GREEN
+
+
+class StuckWatch:
+    """Notice network daemons stuck in uninterruptible sleep, keep evidence."""
+
+    NAMES = ("NetworkManager", "wpa_supplicant")
+
+    def __init__(self):
+        self.since = None
+        self.dumped = False
+
+    def _stuck(self):
+        pids = []
+        for pid in filter(str.isdigit, os.listdir("/proc")):
+            stat = read("/proc/%s/stat" % pid)
+            if not stat:
+                continue
+            name = stat[stat.find("(") + 1:stat.rfind(")")]
+            state = stat[stat.rfind(")") + 2:stat.rfind(")") + 3]
+            if state == "D" and name in self.NAMES:
+                pids.append((pid, name))
+        return pids
+
+    def check(self):
+        pids = self._stuck()
+        if not pids:
+            self.since, self.dumped = None, False
+            return "OK", GREEN
+        now = time.monotonic()
+        self.since = self.since or now
+        if now - self.since < STUCK_AFTER:
+            return "OK", GREEN
+        if not self.dumped:
+            self._dump()
+            self.dumped = True
+        return "STUCK", RED
+
+    def _dump(self):
+        path = "/var/log/net-stuck-%s.txt" % time.strftime("%Y%m%d-%H%M%S")
+        try:
+            with open(path, "w") as out:
+                for pid in filter(str.isdigit, os.listdir("/proc")):
+                    stat = read("/proc/%s/stat" % pid)
+                    if stat and stat[stat.rfind(")") + 2] == "D":
+                        out.write("=== %s %s\n" % (pid, read("/proc/%s/cmdline" % pid).replace("\0", " ")))
+                        out.write("wchan: %s\n%s\n\n" % (read("/proc/%s/wchan" % pid),
+                                                         read("/proc/%s/stack" % pid)))
+                out.write("=== dmesg\n")
+                out.write(subprocess.run(["dmesg"], capture_output=True, text=True,
+                                         timeout=10).stdout[-200000:])
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+
+def status_screen(stuck):
+    c = Canvas(BLACK)
+    c.logo(40, GREEN)
+    soc, bat = temps()
+    rows = [
+        ("DEVICE", "GALAXY A5 (2017)", GREEN),
+        ("OS", os_name(), GREEN),
+        ("KERNEL", os.uname().release, GREEN),
+        ("UPTIME", uptime(), GREEN),
+        ("LOAD", " ".join(read("/proc/loadavg").split()[:3]), GREEN),
+        ("TEMP", "SOC %s  BAT %s" % (soc, bat), GREEN),
+        ("BATTERY", battery(), GREEN),
+        ("MEMORY", memory(), GREEN),
+        ("WIFI", *wifi()),
+        ("SSH", *ssh()),
+        ("NETWORK", *stuck.check()),
+    ]
+    y = 680
+    for label, value, color in rows:
+        c.text(60, y, label, DIM, 5)
+        c.text(60 + 9 * 30, y, value, color, 5)
+        y += 80
+    c.text(60, H - 80, "UPDATED " + time.strftime("%H:%M:%S"), DIM, 4)
+    c.show()
 
 
 def set_panel(on):
@@ -173,32 +386,43 @@ def had_activity(fd):
 
 def daemon():
     fds = input_fds()
+    stuck = StuckWatch()
     awake = True
     last_input = time.monotonic()
-    last_addrs = local_ipv4s()
-    ready_screen()
+    status_screen(stuck)
+    last_draw = time.monotonic()
     while True:
-        readable, _, _ = select.select(fds, [], [], 3)
+        readable, _, _ = select.select(fds, [], [], 2)
+        now = time.monotonic()
         if any([had_activity(fd) for fd in readable]):
-            last_input = time.monotonic()
+            last_input = now
             if not awake:
                 set_panel(True)
-                ready_screen()
                 awake = True
-        addrs = local_ipv4s()
-        if awake and addrs != last_addrs:
-            ready_screen()
-        last_addrs = addrs
-        if awake and time.monotonic() - last_input > SLEEP_AFTER:
+                last_draw = 0
+        if awake and now - last_input > SLEEP_AFTER:
             set_panel(False)
             awake = False
+        if awake and now - last_draw >= REFRESH:
+            status_screen(stuck)
+            last_draw = time.monotonic()
+        elif not awake:
+            stuck.check()  # keep collecting evidence while the screen is off
+
+
+def once():
+    status_screen(StuckWatch())
 
 
 def off():
     set_panel(True)
-    draw(["SHUTTING", "DOWN"], rgba(0, 0, 0), rgba(255, 30, 30))
+    c = Canvas(BLACK)
+    c.logo(40, RED)
+    c.text(60, 760, "SHUTTING", RED, 10)
+    c.text(60, 880, "DOWN", RED, 10)
+    c.show()
 
 
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "daemon"
-    {"daemon": daemon, "ready": ready, "off": off}[mode]()
+    {"daemon": daemon, "once": once, "off": off}[mode]()

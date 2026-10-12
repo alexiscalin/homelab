@@ -26,10 +26,11 @@ pmOS installs into the `SYSTEM` partition as a disk image with its own partition
 
 - Boots to a console system (OpenRC), SSH over USB and over Wi-Fi.
 - Wi-Fi works (qcacld driver + firmware from `firmware-samsung-universal7880`).
+- Wi-Fi stays up (the qcacld TDLS deadlock that killed networking after ~10 min is fixed, #17).
 - The screen works through the framebuffer (no text console: the kernel has no
-  `CONFIG_FRAMEBUFFER_CONSOLE`). A small boot status screen shows **READY** + IP addresses in
-  green on black once the phone is up (sleeps after 30 s, any button wakes it), and
-  **SHUTTING DOWN** in red on shutdown.
+  `CONFIG_FRAMEBUFFER_CONSOLE`). A status screen shows the postmarketOS logo and live system
+  status in green on black (sleeps after 30 s, any button wakes it), and **SHUTTING DOWN** in red
+  on shutdown.
 - Boot time: kernel + initramfs env 4 s; the rest was 3 minutes of firmware timeouts (fix #9,
   confirmed: the three missing firmware files now fail at 6.7 s, 7.7 s and 9.0 s instead of
   costing 60 s each).
@@ -92,6 +93,25 @@ Each problem hid the next one. Numbers match the patches/fixes further down.
     Fix: disable MAC randomisation.
 15. **SSH key refused.** The recovery zip excludes `/home`, and `/home` ended up mode `0777`,
     so sshd's StrictModes ignored `authorized_keys`. Fix: `chmod 755 /home`.
+16. **wpa_supplicant on the wrong interface.** `/etc/conf.d/wpa_supplicant` only sets
+    `-Dnl80211,wext`; with no `-i`, the init script appends the first wireless interface it finds,
+    which is `p2p0` (Wi-Fi Direct), not `wlan0`. Fix: `wpa_supplicant_if="wlan0"`. Correct, but it
+    was **not** the cause of #17.
+17. **Networking deadlocks ~2–10 min after boot.** NetworkManager and wpa_supplicant end up in
+    `D` state; new connections, DHCP, `ip addr`, USB networking after a replug all hang, while
+    already-open SSH sessions keep working for a while; overnight the phone became unreachable.
+    The kernel stacks (`/proc/<pid>/stack`, captured by the status screen) show the chain:
+    - the driver's main thread `VosMCThread` is blocked in `wlan_hdd_tdls_is_progress` ←
+      `wlan_hdd_tdls_implicit_send_discovery_request` ← `hdd_RoamTdlsStatusUpdateHandler`,
+      **holding the SME global lock**;
+    - NetworkManager's RSSI poll (`nl80211_dump_station` → `wlan_hdd_get_rssi` → `sme_GetRssi`)
+      waits for that lock **while holding `genl_lock`**;
+    - wpa_supplicant then waits on `genl_lock`, and everything else piles up behind.
+
+    TDLS (direct station-to-station links) with implicit discovery is enabled in the driver's
+    `qcom_cfg.ini`. Fix: `gEnableTDLSSupport=0` and `gEnableTDLSImplicitTrigger=0` (the
+    `firmware-samsung-universal7880` package now does this, pkgrel 1). Verified: 21 minutes with no
+    `D` state, where it used to lock up within 2–10 minutes.
 
 ## Reproduce from scratch
 
@@ -134,8 +154,9 @@ git -C ~/Projects/pmbootstrap apply \
     ~/Projects/homelab/documentation/postmarketos_a5y17lte/pmbootstrap-locale-fix.patch
 ```
 
-The pmaports patch contains: the pre-July kernel config + checksum, gzip compression, and the
-initfs hook (loop without direct-io + firmware timeout). If upstream pmaports changed since,
+The pmaports patch contains: the pre-July kernel config + checksum, gzip compression, the
+initfs hook (loop without direct-io + firmware timeout), and TDLS disabled in the Wi-Fi firmware
+package's `qcom_cfg.ini`. If upstream pmaports changed since,
 `git apply` may refuse; re-do the edits by hand from the patch. The pmbootstrap patch is only
 needed for non-English locales and only while upstream still has the bug.
 
@@ -200,10 +221,16 @@ sudo rc-update del unudhcpd.usb0 boot
 # suspected cause of the random resets; the panel doesn't need it
 sudo rc-update del msm-fb-refresher boot
 
-# Wi-Fi: no MAC randomisation for the qcacld driver
+# Wi-Fi: no MAC randomisation for the qcacld driver, wpa_supplicant on wlan0 (not p2p0)
 printf "[device]\nwifi.scan-rand-mac-address=no\n\n[connection]\nwifi.cloned-mac-address=permanent\n" \
   | sudo tee /etc/NetworkManager/conf.d/90-no-mac-randomization.conf
+echo 'wpa_supplicant_if="wlan0"' | sudo tee -a /etc/conf.d/wpa_supplicant
+sudo rc-service wpa_supplicant restart
 sudo rc-service networkmanager restart
+
+# TDLS off (#17) -- only needed if the firmware package is older than pkgrel 1
+grep -E '^gEnableTDLS(Support|ImplicitTrigger)=' /usr/lib/firmware/postmarketos/wlan/qcom_cfg.ini
+# both must be 0; the driver reads this file when it loads, so reboot after changing it
 sudo nmcli --ask dev wifi connect "<SSID>" ifname wlan0   # use wlan0, not p2p0
 
 # SSH key login (from the laptop)
@@ -230,17 +257,27 @@ sudo rc-service boot-status-screen start
 
 It runs after `sshd` and `networkmanager` as a small daemon (`boot-status-screen daemon`):
 
-- black screen with **READY** and the IPv4 addresses in green, redrawn when an address appears or
-  changes;
+- black screen, postmarketOS logo (the small fastfetch variant, drawn in terminal-like 1:2 cells
+  so the slopes look right) on the top left, then in green: device, OS, kernel, uptime, load,
+  SoC and battery temperature, battery level/state, memory, Wi-Fi state (connected / no address /
+  no gateway / down), SSH (daemon up + open sessions) and **NETWORK OK / STUCK**;
+- "UPDATED hh:mm:ss" at the bottom, redrawn every 10 s while the screen is on, so a frozen
+  screen is obvious;
 - after **30 s without input** it powers the panel down (`echo 4 > /sys/class/graphics/fb0/blank`);
 - any button (Power, Volume, Home, the two capacitive keys) powers it back up and redraws;
 - **SHUTTING DOWN** in red when the service stops.
 
+Everything is read from `/proc` and `/sys` only (`fib_trie`, `route`, `arp`, `tcp`, thermal and
+power-supply sysfs), never through netlink or `ip`/`nmcli`, so the screen keeps working when
+networking is wedged. **NETWORK: STUCK** (red) means NetworkManager or wpa_supplicant has been in
+`D` state for 20 s; the daemon then writes `/var/log/net-stuck-<date>.txt` with the kernel stack
+of every `D` process plus `dmesg`. That file is how #17 was found. `boot-status-screen once` /
+`off` draw a single screen by hand (as root, or any user in the `video` group for `once`).
+
 Touching the screen doesn't wake it: Samsung's `bt532_ts` driver powers the touch controller off
 together with the panel (`bt532_power_ctrl: off` in `dmesg`), like stock Android. Touch works
 while the screen is on and resets the timer. elogind has `HandlePowerKey=ignore`, so pressing
-Power only wakes the screen. Only needs `python3`, which is already installed; `boot-status-screen
-ready` / `off` still draw a single screen by hand (as root).
+Power only wakes the screen. Only needs `python3`, which is already installed.
 
 ## Display
 
@@ -315,14 +352,17 @@ driven by a log. What worked:
   `pmos_continue_boot` to resume.
 - **Process start times** (`/proc/<pid>/stat` field 22, in 1/100 s) rebuild the boot timeline
   when there's no boot log; that's how the 183 s gap after `udevd` showed up.
+- **Kernel stacks of `D`-state processes** (`/proc/<pid>/stack`, root only) name the exact lock
+  and driver function a hang is stuck on. Saved automatically by the status screen; that's how the
+  TDLS deadlock (#17) was found after two guesses (#16, display-off hooks) turned out wrong.
+- **`logread -b list` / `logread -b -1 -n 0`** read earlier boots from logbookd, but logbookd only
+  flushes to disk periodically/on shutdown: a boot that hangs and gets force-restarted can vanish
+  from the log entirely.
 
 ## Known limitations / open items
 
 - Display: graphics through the framebuffer only (status screen); no text console, no GUI.
-- **Wi-Fi driver lock-up:** the qcacld driver sometimes holds the kernel's network config lock
-  (rtnl) forever. NetworkManager, wpa_supplicant and any `ip addr` then hang in `D` state and the
-  load average climbs (~9), while existing connections (SSH) keep working. The status screen reads
-  `/proc/net/fib_trie` instead of `ip` for that reason. Not investigated yet.
+- The Wi-Fi driver doesn't report signal strength (`/proc/net/wireless` is all zeros).
 - USB data needs a replug after every boot.
 - `nftables` service doesn't start (old kernel); the firewall is effectively off.
 - `pmbootstrap pull` / `git pull` in pmbootstrap can conflict with the local patches; keep the
