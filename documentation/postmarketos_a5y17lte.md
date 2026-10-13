@@ -43,6 +43,12 @@ temperature, SoC temperature, flip-cover hall sensor, vibrator and camera flash/
 `/etc/elogind/logind.conf.d/10-a5-lid.conf` (`10-a5-lid.conf` here: ignore the flip cover until
 suspend is validated on mainline). Not on mainline yet: sound, CPU frequency scaling, display
 driver (the framebuffer from the bootloader is used).
+
+UI (2026-10-13): `postmarketos-ui-gnome-mobile` (GDM + GNOME Mobile) runs on mainline on the
+bootloader framebuffer (simpledrm, software rendering, touch works). `boot-status-screen` was
+removed from the default runlevel since it draws on the same framebuffer (`rc-update add
+boot-status-screen default` to get it back). The 3.18 fallback shares the rootfs and will also
+try to start GDM; SSH still works there.
 TWRP is no longer installed. To make 3.18 the default again:
 `dd if=/dev/mmcblk0p11 of=/dev/mmcblk0p10 bs=1M count=32` (from either kernel).
 
