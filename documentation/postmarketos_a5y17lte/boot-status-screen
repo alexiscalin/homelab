@@ -31,7 +31,8 @@ SLEEP_AFTER = 30
 REFRESH = 10
 STUCK_AFTER = 20
 INPUTS = ("gpio_keys", "sec_touchkey", "sec_touchscreen",  # 3.18
-          "GPIO Keys")  # mainline gpio-keys (DT label)
+          "GPIO Keys",  # mainline gpio-keys (DT label)
+          "Zinitix Capacitive TouchScreen")  # mainline touchscreen
 EV_KEY, EV_ABS = 1, 3
 EVENT_SIZE = 24  # struct input_event on aarch64
 
