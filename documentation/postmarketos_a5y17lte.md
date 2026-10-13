@@ -45,7 +45,7 @@ suspend is validated on mainline). Not on mainline yet: sound, CPU frequency sca
 driver (the framebuffer from the bootloader is used).
 
 UI (2026-10-13): `postmarketos-ui-gnome-mobile` (GDM + GNOME Mobile) runs on mainline on the
-bootloader framebuffer (simpledrm, software rendering, touch works). `boot-status-screen` was
+bootloader framebuffer (simpledrm) and renders on the GPU (Mali-T830, Panfrost), touch works. `boot-status-screen` was
 removed from the default runlevel since it draws on the same framebuffer (`rc-update add
 boot-status-screen default` to get it back). The 3.18 fallback shares the rootfs and will also
 try to start GDM; SSH still works there.
