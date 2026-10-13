@@ -211,14 +211,26 @@ def temps():
         if z.startswith("thermal_zone") and t.lstrip("-").isdigit():
             zones.append(int(t) / 1000)
     soc = "%d*" % max(zones) if zones else "?"
-    bat = read("/sys/class/power_supply/battery/temp")
+    bat = read(battery_dir() + "/temp")
     bat = "%d*" % (int(bat) / 10) if bat.lstrip("-").isdigit() else "?"
     return soc, bat
 
 
+def battery_dir():
+    """3.18 exposes "battery"; mainline the fuel gauge (s2mu005-fuel-gauge)."""
+    base = "/sys/class/power_supply"
+    if os.path.isdir(base + "/battery"):
+        return base + "/battery"
+    for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+        if read("%s/%s/type" % (base, name)) == "Battery":
+            return "%s/%s" % (base, name)
+    return base + "/battery"
+
+
 def battery():
-    cap = read("/sys/class/power_supply/battery/capacity", "?")
-    status = read("/sys/class/power_supply/battery/status", "?").upper()
+    bat = battery_dir()
+    cap = read(bat + "/capacity", "?")
+    status = read(bat + "/status", "?").upper()
     return "%s%% %s" % (cap, status)
 
 
