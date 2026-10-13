@@ -30,7 +30,8 @@ FB_BLANK = "/sys/class/graphics/fb0/blank"
 SLEEP_AFTER = 30
 REFRESH = 10
 STUCK_AFTER = 20
-INPUTS = ("gpio_keys", "sec_touchkey", "sec_touchscreen")
+INPUTS = ("gpio_keys", "sec_touchkey", "sec_touchscreen",  # 3.18
+          "GPIO Keys")  # mainline gpio-keys (DT label)
 EV_KEY, EV_ABS = 1, 3
 EVENT_SIZE = 24  # struct input_event on aarch64
 
