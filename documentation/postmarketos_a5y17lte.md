@@ -34,8 +34,9 @@ see #15). Android data on it was wiped on purpose.
 | `RECOVERY` (`mmcblk0p11`) | this downstream 3.18 pmOS boot.img (the known-good system) | PMU INFORM3 = recovery: set by uniLoader on every mainline boot (so any mainline reset lands here), by `reboot recovery` from 3.18, or Vol Up + Home + Power |
 | `BOOT` (`mmcblk0p10`) | mainline test images (uniLoader + Linux 7.2.x), or a copy of RECOVERY | plain `reboot` from 3.18, power-on, forced restart (Vol Down + Power) |
 
-TWRP is no longer installed. The mainline bring-up (Linux 7.2.10: display console, eMMC,
-high-speed USB networking, full pmOS userspace over SSH) lives in its own repo,
+TWRP is no longer installed. The mainline bring-up (Linux 7.2.10: framebuffer console,
+eMMC at 70 MB/s, high-speed USB networking, Wi-Fi with ath10k at ~9 MB/s, the full pmOS
+userspace reachable over SSH) lives in its own repo,
 `~/Projects/a5y17lte-mainline` — start with its `README.md`. To get back to a plain 3.18
 setup: `dd if=/dev/mmcblk0p11 of=/dev/mmcblk0p10 bs=1M count=32` from 3.18 pmOS.
 
