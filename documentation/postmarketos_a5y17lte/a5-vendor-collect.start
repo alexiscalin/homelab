@@ -1,0 +1,12 @@
+#!/bin/sh
+# /etc/local.d/a5-vendor-collect.start: one-shot data collection on the
+# downstream 3.18 kernel. If /home/alexis/collect318.request exists, save the
+# vendor DVFS/ASV tables to /home/alexis/dvfs-318 and reboot back to BOOT
+# (mainline). Lets the fallback be used without USB or a screen.
+case "$(uname -r)" in 3.*) ;; *) exit 0 ;; esac
+[ -e /home/alexis/collect318.request ] || exit 0
+rm -f /home/alexis/collect318.request
+sleep 20	# let the vendor drivers (Mali, cpufreq, devfreq) settle
+/home/alexis/collect318.sh > /home/alexis/dvfs-318.log 2>&1
+sync
+reboot

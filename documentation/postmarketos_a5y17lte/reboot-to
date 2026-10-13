@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+"""reboot-to.py <reason>: sync, then reboot(2) with an argument (e.g. "recovery").
+
+Samsung's sec_reboot turns the argument into PMU INFORM3, which S-boot uses
+to pick BOOT/RECOVERY/download. busybox `reboot` can't pass an argument.
+Must run as root. Skips the init system's shutdown (only syncs).
+"""
+import ctypes
+import os
+import sys
+
+LINUX_REBOOT_MAGIC1 = 0xfee1dead
+LINUX_REBOOT_MAGIC2 = 672274793
+LINUX_REBOOT_CMD_RESTART2 = 0xA1B2C3D4
+SYS_reboot = 142  # aarch64
+
+reason = sys.argv[1].encode()
+os.sync()
+libc = ctypes.CDLL(None, use_errno=True)
+ret = libc.syscall(SYS_reboot, LINUX_REBOOT_MAGIC1, LINUX_REBOOT_MAGIC2,
+                   LINUX_REBOOT_CMD_RESTART2, ctypes.c_char_p(reason))
+print("reboot failed:", os.strerror(ctypes.get_errno()))
+sys.exit(1)

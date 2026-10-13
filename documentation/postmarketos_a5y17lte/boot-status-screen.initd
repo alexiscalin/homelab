@@ -12,6 +12,15 @@ depend() {
 	after sshd networkmanager
 }
 
+start_pre() {
+	# On mainline the display belongs to GDM (GNOME Mobile)
+	if [ -x /usr/sbin/gdm ] && [ "$(uname -r | cut -d. -f1)" -ge 6 ]; then
+		eerror "the display is GDM's on the mainline kernel"
+		return 1
+	fi
+	return 0
+}
+
 stop_post() {
 	ebegin "Drawing shutdown screen"
 	/usr/local/bin/boot-status-screen off >/dev/null 2>&1

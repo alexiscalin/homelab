@@ -1,0 +1,8 @@
+# /etc/conf.d/gdm: GNOME needs the mainline kernel (DRM/KMS + Panfrost); the
+# downstream 3.18 fallback only has fbdev, where GDM would leave a black screen.
+start_pre() {
+	case "$(uname -r)" in
+		3.*) eerror "GDM needs the mainline kernel"; return 1 ;;
+	esac
+	return 0
+}

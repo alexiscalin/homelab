@@ -32,7 +32,7 @@ see #15). Android data on it was wiped on purpose.
 | Partition | Holds | How S-boot picks it |
 |---|---|---|
 | `BOOT` (`mmcblk0p10`) | **mainline Linux 7.2.10** daily image (uniLoader + kernel + pmOS initramfs) | power-on, plain `reboot`, forced restart (Vol Down + Power) |
-| `RECOVERY` (`mmcblk0p11`) | the downstream 3.18 boot.img (known-good fallback) | `sudo reboot recovery`, Vol Up + Home + Power, and automatically after a mainline crash/panic |
+| `RECOVERY` (`mmcblk0p11`) | the downstream 3.18 boot.img (known-good fallback) | `sudo reboot-to recovery` (busybox `reboot` cannot pass "recovery"), and automatically after a mainline crash/panic |
 
 Both kernels share the same rootfs and `/home`. On mainline, Wi-Fi (ath10k), USB networking,
 charging (also from USB-C PD laptops), eMMC HS200, buttons, touchscreen, RTC, battery level and
@@ -48,7 +48,15 @@ UI (2026-10-13): `postmarketos-ui-gnome-mobile` (GDM + GNOME Mobile) runs on mai
 bootloader framebuffer (simpledrm) and renders on the GPU (Mali-T830, Panfrost), touch works. `boot-status-screen` was
 removed from the default runlevel since it draws on the same framebuffer (`rc-update add
 boot-status-screen default` to get it back). The 3.18 fallback shares the rootfs and will also
-try to start GDM; SSH still works there.
+not start GDM (`/etc/conf.d/gdm` refuses on 3.x) and shows the status screen instead
+(`boot-status-screen` only starts on 3.x when GDM is installed).
+
+Getting out of a stuck RECOVERY boot (S-boot keeps booting RECOVERY): download mode (Vol Down +
+Home + Power, then Vol Up) and any heimdall session that reboots the phone (e.g. flashing BOOT)
+returns to BOOT. Note: on 2026-10-13 neither the 3.18 kernel nor TWRP brought up USB after a
+mainline session (cause not found yet); mainline itself is reachable over USB and Wi-Fi.
+Vendor data collection on 3.18 without USB: `touch ~/collect318.request; sudo reboot-to recovery`
+(`/etc/local.d/a5-vendor-collect.start` collects into `~/dvfs-318` and reboots back).
 TWRP is no longer installed. To make 3.18 the default again:
 `dd if=/dev/mmcblk0p11 of=/dev/mmcblk0p10 bs=1M count=32` (from either kernel).
 
