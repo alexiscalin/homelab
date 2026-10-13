@@ -1,0 +1,52 @@
+#!/bin/sh
+# USB data policy for the Galaxy A5 2017 on the mainline kernel.
+#
+# The s2mu004 MUIC classifies what is plugged in. Only a USB host (computer)
+# gets the D+/D- lines routed to the USB controller and the USB gadget
+# connected. Pulling D+ up on a charger makes the charger (or the phone's
+# input protection) cut VBUS, so the phone stops charging. This is the
+# policy Samsung's 3.18 drivers implement; mainline has no s2mu004 driver.
+#
+# Needs /usr/local/sbin/a5-i2ctool and I2C bus 4 (MUIC, address 0x3d).
+
+I2C=/usr/local/sbin/a5-i2ctool
+BUS=4
+ADDR=3d
+
+r() { $I2C $BUS $ADDR r "$1" 1 2>/dev/null | sed 's/.*=//; s/ //g'; }
+w() { $I2C $BUS $ADDR w "$1" "$2" >/dev/null 2>&1; }
+
+udc() { ls /sys/class/udc 2>/dev/null | head -1; }
+
+set_gadget() {
+	u=$(udc)
+	[ -n "$u" ] && echo "$1" > "/sys/class/udc/$u/soft_connect" 2>/dev/null
+}
+
+is_host() {
+	apple=$(r 69); dt1=$(r 62); chg=$(r 68)
+	[ -n "$apple" ] || return 1
+	vbus=$(( 0x$apple & 0x02 ))
+	host=$(( (0x$chg & 0x0e) | (0x$dt1 & 0x24) ))
+	[ "$vbus" -ne 0 ] && [ "$host" -ne 0 ]
+}
+
+state=unknown
+while :; do
+	if is_host; then
+		if [ "$state" != host ]; then
+			w c7 12		# MUIC manual switching
+			w ca 24		# D+/D- -> USB controller
+			set_gadget connect
+			logger -t a5-usb-policy "USB host detected: USB data on"
+			state=host
+		fi
+	elif [ "$state" != other ]; then
+		set_gadget disconnect
+		w ca 00		# open D+/D-
+		w c7 17		# automatic detection (as the vendor leaves it)
+		logger -t a5-usb-policy "no USB host (charger or nothing): USB data off"
+		state=other
+	fi
+	sleep 2
+done

@@ -1,0 +1,20 @@
+#!/sbin/openrc-run
+# Mainline-kernel-only: route USB data only to a computer, so chargers charge.
+
+name="a5-usb-policy"
+description="Galaxy A5 2017 USB data policy (mainline kernel)"
+command="/usr/local/sbin/a5-usb-policy"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+
+depend() {
+	after sysfs
+}
+
+start_pre() {
+	# 3.18 has Samsung's own MUIC/charger drivers
+	case "$(uname -r)" in
+		3.*) eerror "not needed on the downstream kernel"; return 1 ;;
+	esac
+	[ -e /dev/i2c-4 ] || { eerror "/dev/i2c-4 missing"; return 1; }
+}
