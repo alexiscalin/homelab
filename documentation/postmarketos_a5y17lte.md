@@ -27,18 +27,21 @@ reformatted as ext4 with label `pmOS_home` and mounted on `/home`
 (`LABEL=pmOS_home /home ext4 defaults,noatime 0 2` in `/etc/fstab`; keep `/home` mode 755,
 see #15). Android data on it was wiped on purpose.
 
-### Boot slots (since the mainline kernel work, 2026-10-13)
+### Boot slots (since 2026-10-13: mainline is the default)
 
 | Partition | Holds | How S-boot picks it |
 |---|---|---|
-| `RECOVERY` (`mmcblk0p11`) | this downstream 3.18 pmOS boot.img (the known-good system) | PMU INFORM3 = recovery: set by uniLoader on every mainline boot (so any mainline reset lands here), by `reboot recovery` from 3.18, or Vol Up + Home + Power |
-| `BOOT` (`mmcblk0p10`) | mainline test images (uniLoader + Linux 7.2.x), or a copy of RECOVERY | plain `reboot` from 3.18, power-on, forced restart (Vol Down + Power) |
+| `BOOT` (`mmcblk0p10`) | **mainline Linux 7.2.10** daily image (uniLoader + kernel + pmOS initramfs) | power-on, plain `reboot`, forced restart (Vol Down + Power) |
+| `RECOVERY` (`mmcblk0p11`) | the downstream 3.18 boot.img (known-good fallback) | `sudo reboot recovery`, Vol Up + Home + Power, and automatically after a mainline crash/panic |
 
-TWRP is no longer installed. The mainline bring-up (Linux 7.2.10: framebuffer console,
-eMMC at 70 MB/s, high-speed USB networking, Wi-Fi with ath10k at ~9 MB/s, the full pmOS
-userspace reachable over SSH) lives in its own repo,
-`~/Projects/a5y17lte-mainline` — start with its `README.md`. To get back to a plain 3.18
-setup: `dd if=/dev/mmcblk0p11 of=/dev/mmcblk0p10 bs=1M count=32` from 3.18 pmOS.
+Both kernels share the same rootfs and `/home`. On mainline, Wi-Fi (ath10k), USB networking,
+charging (also from USB-C PD laptops), eMMC HS200, buttons, battery and temperature work; see
+`~/Projects/a5y17lte-mainline/README.md` for the details and how to rebuild/flash
+(`out/mainline-daily.img` → `dd` to `mmcblk0p10`). Mainline-only phone service:
+`a5-usb-policy` (connects USB data only for a computer, so chargers charge). Not on mainline
+yet: touchscreen, sound, CPU frequency scaling, a real-time clock (time comes from chrony).
+TWRP is no longer installed. To make 3.18 the default again:
+`dd if=/dev/mmcblk0p11 of=/dev/mmcblk0p10 bs=1M count=32` (from either kernel).
 
 ## Result
 
