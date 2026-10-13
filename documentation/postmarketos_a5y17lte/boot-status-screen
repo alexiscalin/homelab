@@ -206,15 +206,22 @@ def uptime():
 
 
 def temps():
-    zones = []
+    """SoC = hottest zone; battery from the supply (3.18) or the mainline
+    battery NTC zone ("battery-thermal")."""
+    zones, bat = [], None
     for z in sorted(os.listdir("/sys/class/thermal")):
         t = read("/sys/class/thermal/%s/temp" % z)
-        if z.startswith("thermal_zone") and t.lstrip("-").isdigit():
+        if not (z.startswith("thermal_zone") and t.lstrip("-").isdigit()):
+            continue
+        if read("/sys/class/thermal/%s/type" % z) == "battery-thermal":
+            bat = int(t) / 1000
+        else:
             zones.append(int(t) / 1000)
     soc = "%d*" % max(zones) if zones else "?"
-    bat = read(battery_dir() + "/temp")
-    bat = "%d*" % (int(bat) / 10) if bat.lstrip("-").isdigit() else "?"
-    return soc, bat
+    supply = read(battery_dir() + "/temp")
+    if supply.lstrip("-").isdigit():
+        bat = int(supply) / 10
+    return soc, ("%d*" % bat if bat is not None else "?")
 
 
 def battery_dir():
