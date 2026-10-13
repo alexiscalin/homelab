@@ -22,6 +22,23 @@ pmOS installs into the `SYSTEM` partition as a disk image with its own partition
 `p1` = `pmOS_boot` (ext2, starts at sector 2048), `p2` = `pmOS_root` (ext4, starts at sector
 499712, grown to fill `SYSTEM`). The initramfs reaches them through a loop device.
 
+`SYSTEM` is only 4.3 GB, so the 23 GB Android `USERDATA` partition (`mmcblk0p25`) was
+reformatted as ext4 with label `pmOS_home` and mounted on `/home`
+(`LABEL=pmOS_home /home ext4 defaults,noatime 0 2` in `/etc/fstab`; keep `/home` mode 755,
+see #15). Android data on it was wiped on purpose.
+
+### Boot slots (since the mainline kernel work, 2026-10-13)
+
+| Partition | Holds | How S-boot picks it |
+|---|---|---|
+| `RECOVERY` (`mmcblk0p11`) | this downstream 3.18 pmOS boot.img (the known-good system) | PMU INFORM3 = recovery: set by uniLoader on every mainline boot (so any mainline reset lands here), by `reboot recovery` from 3.18, or Vol Up + Home + Power |
+| `BOOT` (`mmcblk0p10`) | mainline test images (uniLoader + Linux 7.2.x), or a copy of RECOVERY | plain `reboot` from 3.18, power-on, forced restart (Vol Down + Power) |
+
+TWRP is no longer installed. The mainline bring-up (Linux 7.2.10: display console, eMMC,
+high-speed USB networking, full pmOS userspace over SSH) lives in its own repo,
+`~/Projects/a5y17lte-mainline` — start with its `README.md`. To get back to a plain 3.18
+setup: `dd if=/dev/mmcblk0p11 of=/dev/mmcblk0p10 bs=1M count=32` from 3.18 pmOS.
+
 ## Result
 
 - Boots to a console system (OpenRC), SSH over USB and over Wi-Fi.
@@ -318,13 +335,16 @@ The recovery zip only installs once. To ship a changed device package or kernel:
 ```sh
 pmbootstrap build device-samsung-a5y17lte       # sideload does NOT build
 pmbootstrap sideload --host 172.16.42.1 --user alexis --install-key device-samsung-a5y17lte
-ssh -t alexis@172.16.42.1 'sudo mkinitfs && sudo dd if=/boot/boot.img of=/dev/mmcblk0p10 bs=1M conv=fsync \
-  && sudo cmp -n $(stat -c %s /boot/boot.img) /boot/boot.img /dev/mmcblk0p10 && echo BOOT_OK'
+ssh -t alexis@172.16.42.1 'sudo mkinitfs && sudo dd if=/boot/boot.img of=/dev/mmcblk0p11 bs=1M conv=fsync \
+  && sudo cmp -n $(stat -c %s /boot/boot.img) /boot/boot.img /dev/mmcblk0p11 && echo RECOVERY_OK'
 ```
 
-Writing `BOOT` is never automatic on this phone. Check `zcat /boot/initramfs | cpio -t | grep hooks/`
-before flashing if you changed the hook. If a boot image is bad, TWRP is still in `RECOVERY`;
-from Download mode `heimdall flash --BOOT <img>` also works (small file).
+3.18 now boots from `RECOVERY` (`mmcblk0p11`, see "Boot slots"); write `BOOT`
+(`mmcblk0p10`) instead only if you went back to the plain layout. Writing the boot image is
+never automatic on this phone. Check `zcat /boot/initramfs | cpio -t | grep hooks/`
+before flashing if you changed the hook. If a boot image is bad: Download mode
+(Vol Down + Home + Power, hold 10–15 s) and `heimdall flash --BOOT <img>` or
+`--RECOVERY <img>` (small files work, big ones fail).
 
 ## How the problems were found (debugging toolbox)
 
