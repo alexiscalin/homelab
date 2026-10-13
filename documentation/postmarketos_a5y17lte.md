@@ -35,11 +35,14 @@ see #15). Android data on it was wiped on purpose.
 | `RECOVERY` (`mmcblk0p11`) | the downstream 3.18 boot.img (known-good fallback) | `sudo reboot recovery`, Vol Up + Home + Power, and automatically after a mainline crash/panic |
 
 Both kernels share the same rootfs and `/home`. On mainline, Wi-Fi (ath10k), USB networking,
-charging (also from USB-C PD laptops), eMMC HS200, buttons, battery and temperature work; see
+charging (also from USB-C PD laptops), eMMC HS200, buttons, touchscreen, RTC, battery level and
+temperature, SoC temperature, flip-cover hall sensor, vibrator and camera flash/torch work; see
 `~/Projects/a5y17lte-mainline/README.md` for the details and how to rebuild/flash
 (`out/mainline-daily.img` → `dd` to `mmcblk0p10`). Mainline-only phone service:
-`a5-usb-policy` (connects USB data only for a computer, so chargers charge). Not on mainline
-yet: touchscreen, sound, CPU frequency scaling, a real-time clock (time comes from chrony).
+`a5-usb-policy` (connects USB data only for a computer, so chargers charge), plus
+`/etc/elogind/logind.conf.d/10-a5-lid.conf` (`10-a5-lid.conf` here: ignore the flip cover until
+suspend is validated on mainline). Not on mainline yet: sound, CPU frequency scaling, display
+driver (the framebuffer from the bootloader is used).
 TWRP is no longer installed. To make 3.18 the default again:
 `dd if=/dev/mmcblk0p11 of=/dev/mmcblk0p10 bs=1M count=32` (from either kernel).
 
