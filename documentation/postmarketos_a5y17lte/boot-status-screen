@@ -225,7 +225,7 @@ def temps():
 
 
 def battery_dir():
-    """3.18 exposes "battery"; mainline the fuel gauge (s2mu005-fuel-gauge)."""
+    """3.18 exposes "battery"; mainline the s2mu004 fuel gauge."""
     base = "/sys/class/power_supply"
     if os.path.isdir(base + "/battery"):
         return base + "/battery"
