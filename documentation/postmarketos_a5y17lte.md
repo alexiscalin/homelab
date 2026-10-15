@@ -27,22 +27,33 @@ reformatted as ext4 with label `pmOS_home` and mounted on `/home`
 (`LABEL=pmOS_home /home ext4 defaults,noatime 0 2` in `/etc/fstab`; keep `/home` mode 755,
 see #15). Android data on it was wiped on purpose.
 
-### Boot slots (since 2026-10-13: mainline is the default)
+### Boot slots and storage (since 2026-10-15: U-Boot + systemd-boot)
+
+Boot chain: S-boot → **U-Boot** (`BOOT`) → UEFI → **systemd-boot** (`CACHE`) → mainline
+kernel (EFI stub) + pmOS initramfs → root on `USERDATA`.
 
 | Partition | Holds | How S-boot picks it |
 |---|---|---|
-| `BOOT` (`mmcblk0p10`) | **mainline Linux 7.2.10** daily image (uniLoader + kernel + pmOS initramfs) | power-on, plain `reboot`, forced restart (Vol Down + Power) |
-| `RECOVERY` (`mmcblk0p11`) | the downstream 3.18 boot.img (known-good fallback) | `sudo reboot-to recovery` (busybox `reboot` cannot pass "recovery"), and automatically after a mainline crash/panic |
+| `BOOT` (`mmcblk0p10`) | **U-Boot** (upstream 2026.10 `exynos-mobile` board + A5 2017 patch); boot menu with Vol Down, fastboot over USB | power-on, plain `reboot`, forced restart (Vol Down + Power) |
+| `RECOVERY` (`mmcblk0p11`) | the downstream 3.18 boot.img (fallback, vendor data) | `sudo reboot-to recovery` (busybox `reboot` cannot pass "recovery") |
+| `CACHE` (`mmcblk0p20`, 200 MB) | FAT32 `pmOS_boot` = `/boot`: systemd-boot, `vmlinuz`, `initramfs`, `exynos7880-a5y17lte.dtb`, `loader/entries/postmarketos.conf` | — |
+| `USERDATA` (`mmcblk0p25`, 23.4 GB) | ext4 `pmOS_root`: `/` including `/home` | — |
+| `SYSTEM` (`mmcblk0p19`) | the old pmOS image (backup, previous rootfs) | — |
 
-Both kernels share the same rootfs and `/home`. On mainline, Wi-Fi (ath10k), USB networking,
+Kernel/DTB updates on mainline are a file copy into `/boot`; nothing is flashed. U-Boot
+updates: `dd` to `mmcblk0p10`, or `fastboot flash BOOT` from the U-Boot menu. Which rootfs the
+3.18 fallback mounts now (both `USERDATA` and the old image in `SYSTEM` carry the `pmOS_root`
+label) has not been checked yet.
+
+On mainline, Wi-Fi (ath10k), USB networking,
 charging (also from USB-C PD laptops), eMMC HS200, buttons, touchscreen, RTC, battery level and
 temperature, SoC temperature, flip-cover hall sensor, vibrator and camera flash/torch work; see
 `~/Projects/a5y17lte-mainline/README.md` for the details and how to rebuild/flash
-(`out/mainline-daily.img` → `dd` to `mmcblk0p10`). Mainline-only phone service:
+(U-Boot, systemd-boot, flat layout). Mainline-only phone service:
 `a5-usb-policy` (connects USB data only for a computer, so chargers charge), plus
 `/etc/elogind/logind.conf.d/10-a5-lid.conf` (`10-a5-lid.conf` here: ignore the flip cover until
-suspend is validated on mainline). Not on mainline yet: sound, CPU frequency scaling, display
-driver (the framebuffer from the bootloader is used).
+suspend is validated on mainline). CPU frequency scaling and GPU DVFS work. Not on mainline yet: sound, modem, working
+suspend/resume, display driver (the framebuffer from the bootloader is used).
 
 UI (2026-10-13): `postmarketos-ui-gnome-mobile` (GDM + GNOME Mobile) runs on mainline on the
 bootloader framebuffer (simpledrm) and renders on the GPU (Mali-T830, Panfrost), touch works. `boot-status-screen` was
